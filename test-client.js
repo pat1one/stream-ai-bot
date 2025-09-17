@@ -1,6 +1,6 @@
 const WebSocket = require('ws');
 
-const url = process.env.WS_URL || 'ws://localhost:8080';
+const url = process.env.WS_URL || 'ws://localhost:3000';
 const token = process.env.TEST_TOKEN || 'secret-token';
 
 const ws = new WebSocket(url);

@@ -6,6 +6,106 @@ const WebSocket = require('ws');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(express.json());
+
+let db = null;
+try{
+  db = require('./db');
+  console.log('Using SQLite database (./db)');
+}catch(e){
+  db = require('./filedb');
+  console.log('SQLite DB not available, using file-based fallback (./filedb)');
+}
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key';
+
+function checkToken(req, res, next){
+  const token = req.headers['x-auth-token'] || req.query.token;
+  if(token && token === (process.env.EXAMPLE_TOKEN || 'secret-token')) return next();
+  const auth = req.headers['authorization'];
+  if(auth && auth.startsWith('Bearer ')){
+    const t = auth.slice(7);
+    try{ const payload = jwt.verify(t, JWT_SECRET); req.user = payload; return next(); }catch(e){}
+  }
+  return res.status(401).json({error:'unauthorized'});
+}
+
+function requireAdmin(req, res, next){ if(req.user && req.user.role === 'admin') return next(); return res.status(403).json({error:'forbidden'}); }
+
+// Commands API
+app.get('/api/commands', checkToken, (req, res) => {
+  const rows = db.prepare('SELECT name,payload FROM commands').all();
+  const obj = {};
+  for(const r of rows) obj[r.name] = r.payload;
+  res.json(obj);
+});
+
+app.post('/api/commands', checkToken, requireAdmin, (req, res) => {
+  const { name, payload } = req.body;
+  if(!name || !payload) return res.status(400).json({error:'invalid'});
+  db.prepare('INSERT OR REPLACE INTO commands (name,payload) VALUES (?,?)').run(name, payload);
+  res.json({ok:true});
+});
+
+app.delete('/api/commands/:name', checkToken, requireAdmin, (req, res) => {
+  const name = req.params.name;
+  db.prepare('DELETE FROM commands WHERE name = ?').run(name);
+  res.json({ok:true});
+});
+
+// Auth: register + login
+app.post('/api/register', express.json(), async (req, res) =>{
+  const {username, password} = req.body; if(!username||!password) return res.status(400).json({error:'invalid'});
+  const hashed = await bcrypt.hash(password, 8);
+  try{
+    // If no users exist yet, make the first user an admin; otherwise regular 'user'
+    const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+    const role = count === 0 ? 'admin' : 'user';
+    const info = db.prepare('INSERT INTO users (username,password,role) VALUES (?,?,?)').run(username, hashed, role);
+    // return token on successful registration to simplify frontend flow
+    const token = jwt.sign({id: info.lastInsertRowid, username, role}, JWT_SECRET, {expiresIn:'8h'});
+    return res.json({ok:true, token});
+  }catch(e){ return res.status(400).json({error:'exists'}); }
+});
+
+// Settings API
+app.get('/api/settings', checkToken, (req, res) => {
+  const rows = db.prepare('SELECT key,value FROM settings').all();
+  const obj = {};
+  for(const r of rows){
+    try{ obj[r.key] = JSON.parse(r.value); }catch(e){ obj[r.key] = r.value; }
+  }
+  res.json(obj);
+});
+
+app.put('/api/settings', checkToken, requireAdmin, express.json(), (req, res) => {
+  const body = req.body || {};
+  const insert = db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)');
+  try{
+    db.transaction(() => {
+      for(const k of Object.keys(body)) insert.run(k, JSON.stringify(body[k]));
+    })();
+    res.json({ok:true});
+  }catch(e){ res.status(500).json({error:'failed'}); }
+});
+
+app.post('/api/login', express.json(), async (req,res)=>{
+  const {username,password} = req.body; if(!username||!password) return res.status(400).json({error:'invalid'});
+  const row = db.prepare('SELECT id,username,password,role FROM users WHERE username = ?').get(username);
+  if(!row) return res.status(401).json({error:'invalid'});
+  const ok = await bcrypt.compare(password, row.password);
+  if(!ok) return res.status(401).json({error:'invalid'});
+  const token = jwt.sign({id:row.id,username:row.username,role:row.role}, JWT_SECRET, {expiresIn:'8h'});
+  res.json({token});
+});
+
+// Current user info
+app.get('/api/me', checkToken, (req, res) => {
+  if(req.user) return res.json({id: req.user.id, username: req.user.username, role: req.user.role});
+  return res.status(401).json({error:'unauthorized'});
+});
+
 // serve dashboard statics
 app.use('/', express.static(path.join(__dirname, 'twitch-bot-dashboard')));
 
