@@ -1,1 +1,1 @@
-# stream-ai-bot
+Twitch/Youtube AI бот
