@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm install
+      - name: Start server
+        run: |
+          node server.js &
+          # give server time to start
+          for i in {1..10}; do
+            sleep 1
+            ss -ltn | grep ':3000' && break || true
+          done
+      - name: Run test client against server
+        env:
+          WS_URL: ws://localhost:3000
+        run: npm run test-client
+      - name: Run example-server and test it
+        run: |
+          node example-server.js &
+          sleep 1
+          WS_URL=ws://localhost:8080 node test-client.js

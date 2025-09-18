@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Stream AI Bot — Панель управления</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Stream AI Bot — Панель управления</h1>
+    <div style="display:flex;gap:12px;align-items:center">
+      <div id="status" class="status disconnected">Отключено</div>
+      <div id="currentUser" class="muted" style="font-size:0.9rem">Not signed in</div>
+    </div>
+  </header>
+
+  <div class="auth-panel" style="padding:12px 24px;display:flex;gap:8px;align-items:center">
+    <input id="loginUser" type="text" placeholder="username" />
+    <input id="loginPass" type="password" placeholder="password" />
+    <button id="loginBtn">Login</button>
+    <button id="registerBtn">Register (create admin)</button>
+  </div>
+
+  <main class="container">
+    <section class="card">
+      <h2>Подключение</h2>
+      <label>Адрес сервера (ws):
+  <input id="wsUrl" type="text" placeholder="ws://localhost:3000" />
+      </label>
+      <label>Токен (опционально):
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="authToken" type="text" placeholder="введите токен для аутентификации" />
+          <button id="copyTokenBtn" title="Копировать токен">Copy</button>
+        </div>
+      </label>
+      <div class="row">
+        <button id="connectBtn">Подключиться</button>
+        <button id="disconnectBtn" disabled>Отключиться</button>
+      </div>
+      <small class="muted">Поддерживается WebSocket API для управления ботом.</small>
+    </section>
+
+    <section class="card">
+      <h2>Управление сообщениями</h2>
+      <div class="row">
+        <input id="messageInput" type="text" placeholder="Сообщение в чат..." />
+        <button id="sendBtn" disabled>Отправить</button>
+      </div>
+      <div class="row">
+        <select id="commandSelect">
+          <option value="say">say</option>
+          <option value="announce">announce</option>
+        </select>
+        <button id="sendCommandBtn" disabled>Отправить команду</button>
+      </div>
+      <div class="card small">
+        <h3>Пользовательские команды</h3>
+        <div class="row">
+          <input id="newCmdName" type="text" placeholder="имя команды (напр. greet)" />
+          <input id="newCmdPayload" type="text" placeholder="payload (напр. Hello, {user})" />
+          <button id="addCmdBtn">Добавить</button>
+        </div>
+        <div id="customCmds" style="margin-top:8px"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Логи</h2>
+      <div style="margin-bottom:8px"><strong>Последний ответ сервера:</strong> <span id="lastResponse">—</span></div>
+      <div id="logs" class="logs" aria-live="polite"></div>
+      <div class="row">
+        <button id="clearLogsBtn">Очистить</button>
+        <button id="downloadLogsBtn">Скачать</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Настройки</h2>
+      <label><input id="autoReconnect" type="checkbox" /> Авто-переподключение</label>
+      <label><input id="persistLogs" type="checkbox" /> Сохранять логи в localStorage</label>
+      <div style="margin-top:8px" class="row">
+        <button id="loadSettingsBtn">Загрузить настройки</button>
+        <button id="saveSettingsBtn">Сохранить настройки</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">&copy; Stream AI Bot</footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
