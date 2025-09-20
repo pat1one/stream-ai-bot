@@ -1,3 +1,50 @@
+// --- API для A/B тестирования уведомлений ---
+app.post('/api/notifications/abtest/start', rbacManager.requirePermission(PERMISSIONS.MANAGE_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { testName, variants, userSegment } = req.body;
+  // Сохраняем тест в БД (упрощённо)
+  await require('./db').query(
+    `INSERT INTO ab_tests (test_name, variants, user_segment, started_at) VALUES (?, ?, ?, ?)`,
+    [testName, JSON.stringify(variants), JSON.stringify(userSegment), new Date().toISOString()]
+  );
+  res.json({ ok: true });
+}));
+
+app.get('/api/notifications/abtest/results/:testName', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { testName } = req.params;
+  // Получить результаты по каждому варианту
+  const sql = `SELECT variant, COUNT(*) as sent, COUNT(CASE WHEN status = 'opened' THEN 1 END) as opened, COUNT(CASE WHEN status = 'clicked' THEN 1 END) as clicked FROM ab_test_results WHERE test_name = ? GROUP BY variant`;
+  const rows = await require('./db').query(sql, [testName]);
+  res.json({ results: rows });
+}));
+// --- Экспорт статистики для BI/аналитических систем ---
+const { Parser } = require('json2csv');
+app.get('/api/notifications/stats/export', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { format = 'csv', from, to } = req.query;
+  let where = [];
+  let params = [];
+  if (from) { where.push('created_at >= ?'); params.push(from); }
+  if (to) { where.push('created_at <= ?'); params.push(to); }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const sql = `SELECT * FROM notification_history ${whereSql} ORDER BY created_at DESC`;
+  const rows = await require('./db').query(sql, params);
+  if (format === 'json') {
+    res.header('Content-Type', 'application/json');
+    res.send(JSON.stringify(rows));
+  } else {
+    const parser = new Parser();
+    const csv = parser.parse(rows);
+    res.header('Content-Type', 'text/csv');
+    res.attachment('notification_stats.csv');
+    res.send(csv);
+  }
+}));
+// --- История изменений шаблонов уведомлений ---
+app.get('/api/notifications/templates/history/:name', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  const sql = `SELECT version, updated_at, updated_by, changes FROM notification_template_history WHERE template_name = ? ORDER BY version DESC`;
+  const rows = await require('./db').query(sql, [name]);
+  res.json({ history: rows });
+}));
 // --- Анализ причин ошибок и неудачных рассылок ---
 app.get('/api/notifications/failures/analyze', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
   // Анализируем ошибки и неудачные рассылки по истории
@@ -319,7 +366,17 @@ app.get('/api/notifications/templates/:name', rbacManager.requirePermission(PERM
 app.post('/api/notifications/templates', rbacManager.requirePermission(PERMISSIONS.MANAGE_NOTIFICATIONS), asyncHandler(async (req, res) => {
   const { error } = notificationSchemas.template.validate(req.body);
   if (error) return res.status(400).json({ error: error.details.map(e => e.message).join(', ') });
+  // Получить предыдущую версию шаблона
+  const prev = await customNotificationManager.getTemplate(req.body.name);
   const saved = await customNotificationManager.saveTemplate(req.body);
+  // Сохраняем историю изменений
+  if (prev) {
+    const changes = JSON.stringify({ before: prev, after: req.body });
+    await require('./db').query(
+      `INSERT INTO notification_template_history (template_name, version, updated_at, updated_by, changes) VALUES (?, ?, ?, ?, ?)`,
+      [req.body.name, (prev.version || 1) + 1, new Date().toISOString(), req.user?.id || 'system', changes]
+    );
+  }
   res.json({ template: saved });
 }));
 

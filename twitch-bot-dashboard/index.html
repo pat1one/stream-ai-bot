@@ -1,22 +1,3 @@
-      <!-- AI-отчёт по эффективности уведомлений -->
-      <div id="notificationAISummary" style="margin-top:32px">
-        <button id="notificationAISummaryBtn" class="btn" style="margin-bottom:12px">AI-отчёт по эффективности</button>
-        <div id="notificationAISummaryResult" style="min-height:48px;font-size:1.08em;color:#222;background:#f8fafd;padding:16px 18px;border-radius:8px;box-shadow:0 1px 4px #0001"></div>
-      </div>
-    <!-- RBAC UI: управление ролями -->
-    <section class="card" id="rbac-card">
-      <h2>Управление ролями (RBAC)</h2>
-      <div class="row">
-        <input id="rbacUserId" type="text" placeholder="ID пользователя" style="max-width:120px">
-        <select id="rbacRole">
-          <option value="user">user</option>
-          <option value="moderator">moderator</option>
-          <option value="admin">admin</option>
-        </select>
-        <button id="rbacSetRoleBtn">Назначить роль</button>
-      </div>
-      <div id="rbacStatus" class="muted" style="margin-top:8px"></div>
-    </section>
 <!doctype html>
 <html lang="ru">
 <head>
@@ -24,20 +5,13 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Stream AI Bot — Панель управления</title>
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="notifications.css">
 </head>
 <body>
-
   <header class="topbar">
     <h1>Stream AI Bot — Панель управления</h1>
     <div style="display:flex;gap:12px;align-items:center">
       <div id="status" class="status disconnected">Отключено</div>
       <div id="currentUser" class="muted" style="font-size:0.9rem">Not signed in</div>
-      <button id="themeToggleBtn" title="Переключить тему" style="font-size:1.1em;padding:4px 10px;">🌙</button>
-      <select id="langSelect" title="Язык" style="font-size:1em;padding:4px 8px;">
-        <option value="ru">RU</option>
-        <option value="en">EN</option>
-      </select>
     </div>
   </header>
 
@@ -46,78 +20,37 @@
     <input id="loginPass" type="password" placeholder="password" />
     <button id="loginBtn">Login</button>
     <button id="registerBtn">Register (create admin)</button>
-    <!-- OAuth/SSO buttons -->
-    <span id="oauthButtons" style="display:none;gap:8px">
-      <a href="/auth/google" id="googleLoginBtn" class="oauth-btn" title="Войти через Google" style="padding:4px 10px;background:#fff;color:#222;border-radius:4px;border:1px solid #ccc;text-decoration:none;display:inline-block;">Google</a>
-      <a href="/auth/github" id="githubLoginBtn" class="oauth-btn" title="Войти через GitHub" style="padding:4px 10px;background:#222;color:#fff;border-radius:4px;border:1px solid #222;text-decoration:none;display:inline-block;">GitHub</a>
-    </span>
   </div>
 
   <main class="container">
-
-    <!-- Секция мониторинга -->
-    <section class="card" id="monitoring-card">
-      <h2>Мониторинг</h2>
-      <div style="display:flex;flex-wrap:wrap;gap:24px">
-        <div>
-          <h3>Метрики</h3>
-          <canvas id="metricsChart" width="320" height="180"></canvas>
-          <button id="refreshMetricsBtn">Обновить метрики</button>
-        </div>
-        <div>
-          <h3>Логи</h3>
-          <div id="monitoringLogs" class="logs" style="max-height:180px;overflow:auto;background:#222;color:#eee;padding:8px;font-size:0.95em"></div>
-          <button id="refreshLogsBtn">Обновить логи</button>
-        </div>
-      </div>
+    <section class="card">
+      <h2>A/B тесты уведомлений</h2>
+      <div id="abTestPanel"></div>
     </section>
 
-    <!-- Секция уведомлений -->
-    <section class="card notifications-section">
-      <div class="notifications-card">
-        <div class="notifications-header">
-          <h2>Notifications</h2>
-          <div class="row" style="margin-bottom:8px">
-            <input id="notifFilter" type="text" placeholder="Фильтр по тексту..." style="max-width:200px">
-            <select id="notifSort">
-              <option value="desc">Сначала новые</option>
-              <option value="asc">Сначала старые</option>
-            </select>
-            <button id="mark-all-read" class="btn secondary">Mark all as read</button>
-          </div>
-        </div>
-        <div id="notifications-list" class="notifications-list"></div>
-      </div>
-
-  <!-- Раздел шаблонов уведомлений -->
-  <div id="notificationTemplates" class="notifications-templates"></div>
-      <!-- Секция статистики уведомлений -->
-      <div id="notificationStatsSection" class="notifications-stats">
-        <div class="stats-filters" style="display:flex;gap:12px;align-items:end;margin-bottom:12px;flex-wrap:wrap">
-          <label>Шаблон:
-            <input type="text" id="statsFilterTemplate" placeholder="Название шаблона" style="min-width:120px">
-          </label>
-          <label>Категория:
-            <input type="text" id="statsFilterCategory" placeholder="Категория" style="min-width:100px">
-          </label>
-          <label>Теги:
-            <input type="text" id="statsFilterTags" placeholder="тег1, тег2" style="min-width:100px">
-          </label>
-          <label>Период:
-            <input type="date" id="statsFilterFrom"> — <input type="date" id="statsFilterTo">
-          </label>
-          <button id="statsFilterApply" class="btn">Фильтровать</button>
-          <button id="statsFilterReset" class="btn secondary">Сбросить</button>
-        </div>
-        <div style="margin-bottom:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-          <canvas id="notificationStatsChart" width="800" height="320" style="max-width:100%;background:#fff;border-radius:8px;box-shadow:0 1px 4px #0001"></canvas>
-          <button id="notificationStatsExportCsv" class="btn secondary" style="height:40px">Экспорт CSV</button>
-        </div>
-  <div id="notificationStatsTableWrap"></div>
-  <div id="notificationTagsAnalytics" style="margin-top:32px"></div>
-      </div>
+    <section class="card">
+      <h2>История изменений шаблонов</h2>
+      <div id="templateHistoryPanel"></div>
     </section>
 
+    <section class="card">
+      <h2>Экспорт для BI/аналитики</h2>
+      <button id="exportBIcsvBtn">Выгрузить CSV</button>
+      <button id="exportBIjsonBtn">Выгрузить JSON</button>
+      <div id="exportBIResult"></div>
+    </section>
+
+    <section class="card">
+      <h2>AI-отчёты и прогнозы</h2>
+      <div id="notificationAIPredict"></div>
+      <div id="notificationAISummaryBtn"></div>
+      <div id="notificationAISummaryResult"></div>
+    </section>
+
+    <section class="card">
+      <h2>Анализ ошибок рассылок</h2>
+      <div id="failureAnalysisPanel"></div>
+    </section>
     <section class="card">
       <h2>Подключение</h2>
       <label>Адрес сервера (ws):
@@ -163,13 +96,6 @@
     <section class="card">
       <h2>Логи</h2>
       <div style="margin-bottom:8px"><strong>Последний ответ сервера:</strong> <span id="lastResponse">—</span></div>
-      <div class="row" style="margin-bottom:8px">
-        <input id="logFilter" type="text" placeholder="Фильтр по тексту..." style="max-width:200px">
-        <select id="logSort">
-          <option value="desc">Сначала новые</option>
-          <option value="asc">Сначала старые</option>
-        </select>
-      </div>
       <div id="logs" class="logs" aria-live="polite"></div>
       <div class="row">
         <button id="clearLogsBtn">Очистить</button>
@@ -190,11 +116,6 @@
 
   <footer class="footer">&copy; Stream AI Bot</footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script type="module" src="i18n.js"></script>
-  <script type="module" src="app.js"></script>
-  <script type="module" src="notifications.js"></script>
-</body>
-</html>
+  <script src="app.js"></script>
 </body>
 </html>

@@ -1,12 +1,30 @@
+// Таблицы для A/B тестирования уведомлений
+db.exec(`
+CREATE TABLE IF NOT EXISTS ab_tests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  test_name TEXT,
+  variants TEXT,
+  user_segment TEXT,
+  started_at TEXT
+);
+CREATE TABLE IF NOT EXISTS ab_test_results (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  test_name TEXT,
+  variant TEXT,
+  user_id INTEGER,
+  status TEXT,
+  sent_at TEXT
+);
+`);
 // История изменений шаблонов уведомлений
 db.exec(`
 CREATE TABLE IF NOT EXISTS notification_template_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   template_name TEXT,
   version INTEGER,
-  content TEXT,
   updated_at TEXT,
-  updated_by TEXT
+  updated_by TEXT,
+  changes TEXT
 );
 `);
 // Миграция: таблица notification_history для аналитики и сегментации
