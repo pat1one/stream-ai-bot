@@ -1,20 +1,253 @@
+// --- Анализ причин ошибок и неудачных рассылок ---
+app.get('/api/notifications/failures/analyze', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  // Анализируем ошибки и неудачные рассылки по истории
+  const sql = `SELECT channel, status, COUNT(*) as count, MIN(created_at) as first, MAX(created_at) as last FROM notification_history WHERE status IN ('error','failed','undelivered') GROUP BY channel, status ORDER BY count DESC`;
+  const rows = await require('./db').query(sql, []);
+  // Автоматические рекомендации
+  const recommendations = [];
+  rows.forEach(r => {
+    if (r.channel === 'email' && r.status === 'undelivered') recommendations.push('Проверьте корректность email-адресов и настройки SMTP.');
+    if (r.channel === 'telegram' && r.status === 'error') recommendations.push('Проверьте токен Telegram-бота и права доступа.');
+    if (r.channel === 'discord' && r.status === 'error') recommendations.push('Проверьте токен Discord-бота и права доступа к каналу.');
+    if (r.status === 'failed') recommendations.push('Проверьте логи сервера и сетевое соединение.');
+  });
+  res.json({ failures: rows, recommendations });
+}));
+// --- Формирование и отправка расширенного отчёта (PDF, email, Telegram) ---
+const PDFDocument = require('pdfkit');
+const nodemailer = require('nodemailer');
+app.post('/api/notifications/report', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { email, telegramChatId, stats, summary } = req.body;
+  // PDF генерация
+  const doc = new PDFDocument();
+  let buffers = [];
+  doc.on('data', buffers.push.bind(buffers));
+  doc.on('end', async () => {
+    const pdfData = Buffer.concat(buffers);
+    // Email отправка
+    if (email && process.env.SMTP_HOST) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST,
+          port: process.env.SMTP_PORT,
+          secure: false,
+          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+        });
+        await transporter.sendMail({
+          from: process.env.SMTP_USER,
+          to: email,
+          subject: 'AI-отчёт по рассылкам',
+          text: summary,
+          attachments: [{ filename: 'report.pdf', content: pdfData }]
+        });
+      } catch (e) { /* логировать ошибку */ }
+    }
+    // Telegram отправка (если настроено)
+    if (telegramChatId && process.env.TELEGRAM_BOT_TOKEN) {
+      try {
+        const fetch = require('node-fetch');
+        await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendDocument`, {
+          method: 'POST',
+          body: JSON.stringify({ chat_id: telegramChatId, document: pdfData.toString('base64'), caption: summary }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) { /* логировать ошибку */ }
+    }
+    res.json({ ok: true });
+  });
+  // PDF контент
+  doc.fontSize(18).text('AI-отчёт по рассылкам', { align: 'center' });
+  doc.moveDown();
+  doc.fontSize(12).text(summary);
+  doc.moveDown();
+  doc.text('Статистика:', { underline: true });
+  if (Array.isArray(stats)) {
+    stats.forEach(s => {
+      doc.text(`Шаблон: ${s.template}, Канал: ${s.channel}, Отправлено: ${s.sent}, Открыто: ${s.opened}, Клики: ${s.clicked}, CTR: ${(s.ctr*100).toFixed(1)}%`);
+    });
+  }
+  doc.end();
+}));
+// --- AI-предсказания и гипотезы по рассылкам ---
+app.post('/api/notifications/ai-predict', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { template, channel, stats } = req.body;
+  // Простая эвристика: если CTR < 10% — рекомендация улучшить CTA, если > 25% — успех
+  let prediction = '';
+  let hypothesis = '';
+  if (stats && typeof stats.ctr === 'number') {
+    if (stats.ctr < 0.1) prediction = 'Ожидается низкая кликабельность. Рекомендуется улучшить call-to-action.';
+    else if (stats.ctr > 0.25) prediction = 'Ожидается высокая кликабельность. Шаблон эффективен.';
+    else prediction = 'Ожидается средняя кликабельность.';
+  }
+  // Hook для внешнего AI (OpenAI)
+  let aiHypothesis = '';
+  if (process.env.OPENAI_API_KEY && stats) {
+    try {
+      const fetch = require('node-fetch');
+      const prompt = `Дай краткую гипотезу по эффективности рассылки: шаблон "${template}", канал "${channel}", статистика: ${JSON.stringify(stats)}`;
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 100
+        })
+      });
+      const json = await resp.json();
+      aiHypothesis = json.choices?.[0]?.message?.content || '';
+    } catch (e) {
+      aiHypothesis = 'AI-гипотеза недоступна.';
+    }
+  }
+  res.json({ prediction, hypothesis, aiHypothesis });
+}));
+// --- Статистика по каналам доставки ---
+app.get('/api/notifications/stats/channels', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { from, to } = req.query;
+  let where = [];
+  let params = [];
+  if (from) { where.push('created_at >= ?'); params.push(from); }
+  if (to) { where.push('created_at <= ?'); params.push(to); }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const sql = `
+    SELECT channel,
+      COUNT(*) as sent,
+      COUNT(CASE WHEN status = 'opened' THEN 1 END) as opened,
+      COUNT(CASE WHEN status = 'clicked' THEN 1 END) as clicked
+    FROM notification_history
+    ${whereSql}
+    GROUP BY channel
+    ORDER BY sent DESC
+  `;
+  const result = await require('./db').query(sql, params);
+  const stats = result.map(row => ({
+    channel: row.channel,
+    sent: Number(row.sent),
+    opened: Number(row.opened),
+    clicked: Number(row.clicked),
+    conversion: row.sent > 0 ? (row.opened / row.sent) : 0,
+    ctr: row.sent > 0 ? (row.clicked / row.sent) : 0
+  }));
+  res.json({ stats });
+}));
+// --- Сегментированная статистика уведомлений ---
+app.get('/api/notifications/stats/segmented', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { userId, role, user_group, channel, from, to } = req.query;
+  let where = [];
+  let params = [];
+  if (userId) { where.push('user_id = ?'); params.push(userId); }
+  if (role) { where.push('role = ?'); params.push(role); }
+  if (user_group) { where.push('user_group = ?'); params.push(user_group); }
+  if (channel) { where.push('channel = ?'); params.push(channel); }
+  if (from) { where.push('created_at >= ?'); params.push(from); }
+  if (to) { where.push('created_at <= ?'); params.push(to); }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const sql = `
+    SELECT user_id, role, user_group, channel, template_name, category,
+      COUNT(*) as sent,
+      COUNT(CASE WHEN status = 'opened' THEN 1 END) as opened,
+      COUNT(CASE WHEN status = 'clicked' THEN 1 END) as clicked,
+      MIN(created_at) as first_sent,
+      MAX(created_at) as last_sent
+    FROM notification_history
+    ${whereSql}
+    GROUP BY user_id, role, user_group, channel, template_name, category
+    ORDER BY user_id, template_name
+  `;
+  const result = await require('./db').query(sql, params);
+  const stats = result.map(row => ({
+    user_id: row.user_id,
+    role: row.role,
+    user_group: row.user_group,
+    channel: row.channel,
+    template: row.template_name,
+    category: row.category,
+    sent: Number(row.sent),
+    opened: Number(row.opened),
+    clicked: Number(row.clicked),
+    conversion: row.sent > 0 ? (row.opened / row.sent) : 0,
+    ctr: row.sent > 0 ? (row.clicked / row.sent) : 0,
+    first_sent: row.first_sent,
+    last_sent: row.last_sent
+  }));
+  res.json({ stats });
+}));
+// --- Аналитика по истории AI-отчётов ---
+app.get('/api/ai-report/history/stats', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  // Количество отчётов по дням, успешность, динамика
+  const sql = `
+    SELECT 
+      DATE(created_at) as day,
+      COUNT(*) as total,
+      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error
+    FROM ai_report_history
+    GROUP BY day
+    ORDER BY day DESC
+    LIMIT 30
+  `;
+  const rows = await require('./db').query(sql, []);
+  // Общая статистика
+  const totalSql = `SELECT COUNT(*) as total, SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error FROM ai_report_history`;
+  const [totalStats] = await require('./db').query(totalSql, []);
+  res.json({
+    daily: rows,
+    total: totalStats
+  });
+}));
+// --- История AI-отчётов: фильтры и экспорт ---
+const { Parser } = require('json2csv');
+
+// Получить историю AI-отчётов с фильтрами
+app.get('/api/ai-report/history', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { from, to, email, status } = req.query;
+  let where = [];
+  let params = [];
+  if (from) { where.push('created_at >= ?'); params.push(from); }
+  if (to) { where.push('created_at <= ?'); params.push(to); }
+  if (email) { where.push('email LIKE ?'); params.push(`%${email}%`); }
+  if (status) { where.push('status = ?'); params.push(status); }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const sql = `SELECT id, created_at, email, status, summary FROM ai_report_history ${whereSql} ORDER BY created_at DESC`;
+  const rows = await require('./db').query(sql, params);
+  res.json({ history: rows });
+}));
+
+// Экспорт истории AI-отчётов в CSV
+app.get('/api/ai-report/history/export', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { from, to, email, status } = req.query;
+  let where = [];
+  let params = [];
+  if (from) { where.push('created_at >= ?'); params.push(from); }
+  if (to) { where.push('created_at <= ?'); params.push(to); }
+  if (email) { where.push('email LIKE ?'); params.push(`%${email}%`); }
+  if (status) { where.push('status = ?'); params.push(status); }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const sql = `SELECT id, created_at, email, status, summary FROM ai_report_history ${whereSql} ORDER BY created_at DESC`;
+  const rows = await require('./db').query(sql, params);
+  const parser = new Parser({ fields: ['id', 'created_at', 'email', 'status', 'summary'] });
+  const csv = parser.parse(rows);
+  res.header('Content-Type', 'text/csv');
+  res.attachment('ai_report_history.csv');
+  res.send(csv);
+}));
 // --- Google Analytics Measurement Protocol ---
 const fetch = require('node-fetch');
 const GA_MEASUREMENT_ID = process.env.GA_MEASUREMENT_ID;
 const GA_API_SECRET = process.env.GA_API_SECRET;
-async function sendAnalyticsEvent({ category, action, label, value, userId }) {
+async function sendAnalyticsEvent(eventName, eventParams = {}) {
   if (!GA_MEASUREMENT_ID || !GA_API_SECRET) return;
   const url = `https://www.google-analytics.com/mp/collect?measurement_id=${GA_MEASUREMENT_ID}&api_secret=${GA_API_SECRET}`;
   const body = {
-    client_id: userId || 'stream-ai-bot',
+    client_id: 'stream-ai-bot',
     events: [
       {
-        name: action,
-        params: {
-          event_category: category,
-          event_label: label,
-          value: value || 1
-        }
+        name: eventName,
+        params: eventParams
       }
     ]
   };
@@ -465,16 +698,7 @@ app.post('/api/notifications/:id/read', rbacManager.requirePermission(PERMISSION
 // Интеграция: отправка события вебхука при новом уведомлении
 const origSendNotification = notificationManager.sendNotification.bind(notificationManager);
 notificationManager.sendNotification = function(userId, notification) {
-  // Вызов GA аналитики при отправке уведомления
-  const notif = origSendNotification(userId, notification, (gaEvent) => {
-    sendAnalyticsEvent({
-      category: 'Notification',
-      action: gaEvent.action,
-      label: [gaEvent.template, gaEvent.category, Array.isArray(gaEvent.tags) ? gaEvent.tags.join(',') : '', gaEvent.priority].filter(Boolean).join('|'),
-      value: 1,
-      userId: gaEvent.userId
-    });
-  });
+  const notif = origSendNotification(userId, notification);
   webhookManager.trigger('notification', { userId, notification: notif });
   return notif;
 };

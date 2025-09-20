@@ -1,3 +1,210 @@
+// --- Кнопка и обработчик AI-прогноза по рассылке ---
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    const aiPredictEl = document.getElementById('notificationAIPredict');
+    if (aiPredictEl) {
+      aiPredictEl.innerHTML = `<button id="aiPredictBtn">AI-прогноз по рассылке</button><div id="aiPredictResult" style="margin-top:12px"></div>`;
+      document.getElementById('aiPredictBtn').onclick = async () => {
+        const template = prompt('Введите название шаблона для прогноза:');
+        const channel = prompt('Введите канал (email, Discord, Telegram):');
+        // Получить статистику по шаблону и каналу
+        let stats = {};
+        try {
+          const res = await fetch('/api/notifications/stats/channels');
+          const data = await res.json();
+          if (data.stats && Array.isArray(data.stats)) {
+            const found = data.stats.find(s => s.channel === channel);
+            if (found) stats = found;
+          }
+        } catch {}
+        const resultEl = document.getElementById('aiPredictResult');
+        resultEl.innerHTML = '<span class="loader" style="display:inline-block;width:20px;height:20px;border:3px solid #36a2eb;border-radius:50%;border-right-color:transparent;animation:spin 1s linear infinite;vertical-align:middle;margin-right:10px"></span> AI анализ...';
+        try {
+          const resp = await fetch('/api/notifications/ai-predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ template, channel, stats })
+          });
+          const data = await resp.json();
+          resultEl.innerHTML = `<b>AI-прогноз:</b> ${escapeHtml(data.prediction||'')}<br><b>Гипотеза:</b> ${escapeHtml(data.hypothesis||'')}<br><b>AI-гипотеза:</b> ${escapeHtml(data.aiHypothesis||'')}`;
+        } catch (e) {
+          resultEl.innerHTML = `<span style="color:red">Ошибка AI-прогноза: ${escapeHtml(e.message)}</span>`;
+        }
+      };
+    }
+  });
+}
+// --- Аналитика по каналам доставки (dashboard) ---
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    const channelStatsEl = document.getElementById('notificationChannelStats');
+    if (channelStatsEl) {
+      channelStatsEl.innerHTML = '<span class="loader" style="display:inline-block;width:20px;height:20px;border:3px solid #36a2eb;border-radius:50%;border-right-color:transparent;animation:spin 1s linear infinite;vertical-align:middle;margin-right:10px"></span> Загрузка статистики по каналам...';
+      fetch('/api/notifications/stats/channels').then(r => r.json()).then(data => {
+        if (!data.stats || !data.stats.length) {
+          channelStatsEl.innerHTML = 'Нет данных по каналам.';
+          return;
+        }
+        channelStatsEl.innerHTML = `
+          <h3>Аналитика по каналам доставки</h3>
+          <canvas id="channelStatsChart" width="700" height="220" style="max-width:100%;background:#fff;border-radius:8px;box-shadow:0 1px 4px #0001"></canvas>
+        `;
+        const chartEl = document.getElementById('channelStatsChart');
+        const labels = data.stats.map(s => s.channel||'-');
+        const sent = data.stats.map(s => s.sent);
+        const opened = data.stats.map(s => s.opened);
+        const clicked = data.stats.map(s => s.clicked);
+        const ctr = data.stats.map(s => +(s.ctr*100).toFixed(1));
+        if (window.channelStatsChart) window.channelStatsChart.destroy?.();
+        window.channelStatsChart = new window.Chart(chartEl.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              { label: 'Отправлено', data: sent, backgroundColor: '#36a2eb' },
+              { label: 'Открыто', data: opened, backgroundColor: '#4bc0c0' },
+              { label: 'Клики', data: clicked, backgroundColor: '#ffcd56' },
+              { label: 'CTR (%)', data: ctr, backgroundColor: '#ff6384', type: 'line', yAxisID: 'y1' }
+            ]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { position: 'top' } },
+            scales: {
+              y: { beginAtZero: true, title: { display: true, text: 'Кол-во' } },
+              y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'CTR (%)' }, grid: { drawOnChartArea: false } }
+            }
+          }
+        });
+      }).catch(e => {
+        channelStatsEl.innerHTML = `<span style="color:red">Ошибка загрузки: ${escapeHtml(e.message)}</span>`;
+      });
+    }
+  });
+}
+// --- UI фильтры и графики для сегментированной статистики ---
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    const segStatsEl = document.getElementById('notificationSegmentedStats');
+    if (segStatsEl) {
+      // Фильтры
+      const filterForm = `
+        <div style="margin-bottom:12px">
+          <input id="segFilterUserId" placeholder="User ID" style="width:120px;margin-right:8px">
+          <input id="segFilterRole" placeholder="Role" style="width:120px;margin-right:8px">
+          <input id="segFilterGroup" placeholder="Group" style="width:120px;margin-right:8px">
+          <input id="segFilterChannel" placeholder="Channel" style="width:120px;margin-right:8px">
+          <input id="segFilterFrom" type="date" style="margin-right:8px">
+          <input id="segFilterTo" type="date" style="margin-right:8px">
+          <button id="segFilterApply">Показать</button>
+        </div>
+        <div id="segStatsChartWrap"></div>
+        <div id="segStatsTableWrap"></div>
+      `;
+      segStatsEl.innerHTML = filterForm;
+      document.getElementById('segFilterApply').onclick = async () => {
+        const userId = document.getElementById('segFilterUserId').value;
+        const role = document.getElementById('segFilterRole').value;
+        const user_group = document.getElementById('segFilterGroup').value;
+        const channel = document.getElementById('segFilterChannel').value;
+        const from = document.getElementById('segFilterFrom').value;
+        const to = document.getElementById('segFilterTo').value;
+        const params = new URLSearchParams({ userId, role, user_group, channel, from, to });
+        const chartWrap = document.getElementById('segStatsChartWrap');
+        const tableWrap = document.getElementById('segStatsTableWrap');
+        chartWrap.innerHTML = '<span class="loader" style="display:inline-block;width:20px;height:20px;border:3px solid #36a2eb;border-radius:50%;border-right-color:transparent;animation:spin 1s linear infinite;vertical-align:middle;margin-right:10px"></span> Загрузка...';
+        tableWrap.innerHTML = '';
+        try {
+          const res = await fetch('/api/notifications/stats/segmented?' + params.toString());
+          const data = await res.json();
+          if (!data.stats || !data.stats.length) {
+            chartWrap.innerHTML = 'Нет данных по выбранным фильтрам.';
+            return;
+          }
+          // График по пользователям/группам/каналам
+          const labels = data.stats.map(s => `${s.user_id||'-'}:${s.role||'-'}:${s.user_group||'-'}:${s.channel||'-'}`);
+          const sent = data.stats.map(s => s.sent);
+          const opened = data.stats.map(s => s.opened);
+          const clicked = data.stats.map(s => s.clicked);
+          if (window.segStatsChart) window.segStatsChart.destroy?.();
+          chartWrap.innerHTML = '<canvas id="segStatsChart" width="700" height="220" style="max-width:100%;background:#fff;border-radius:8px;box-shadow:0 1px 4px #0001"></canvas>';
+          const chartEl = document.getElementById('segStatsChart');
+          window.segStatsChart = new window.Chart(chartEl.getContext('2d'), {
+            type: 'bar',
+            data: {
+              labels,
+              datasets: [
+                { label: 'Отправлено', data: sent, backgroundColor: '#36a2eb' },
+                { label: 'Открыто', data: opened, backgroundColor: '#4bc0c0' },
+                { label: 'Клики', data: clicked, backgroundColor: '#ffcd56' }
+              ]
+            },
+            options: {
+              responsive: true,
+              plugins: { legend: { position: 'top' } },
+              scales: { y: { beginAtZero: true, title: { display: true, text: 'Кол-во' } } }
+            }
+          });
+          // Таблица
+          tableWrap.innerHTML = `<table class="stats-table"><thead><tr><th>User</th><th>Role</th><th>Group</th><th>Channel</th><th>Template</th><th>Category</th><th>Sent</th><th>Opened</th><th>Clicked</th><th>Conversion</th><th>CTR</th><th>Period</th></tr></thead><tbody>${data.stats.map(s => `<tr><td>${escapeHtml(s.user_id||'-')}</td><td>${escapeHtml(s.role||'-')}</td><td>${escapeHtml(s.user_group||'-')}</td><td>${escapeHtml(s.channel||'-')}</td><td>${escapeHtml(s.template||'-')}</td><td>${escapeHtml(s.category||'-')}</td><td>${s.sent}</td><td>${s.opened}</td><td>${s.clicked}</td><td>${(s.conversion*100).toFixed(1)}%</td><td>${(s.ctr*100).toFixed(1)}%</td><td>${s.first_sent||'-'} — ${s.last_sent||'-'}</td></tr>`).join('')}</tbody></table>`;
+        } catch (e) {
+          chartWrap.innerHTML = `<span style="color:red">Ошибка загрузки: ${escapeHtml(e.message)}</span>`;
+        }
+      };
+    }
+  });
+}
+// --- Аналитика по истории AI-отчётов (dashboard) ---
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    const statsEl = document.getElementById('aiReportHistoryStats');
+    if (statsEl) {
+      statsEl.innerHTML = '<span class="loader" style="display:inline-block;width:20px;height:20px;border:3px solid #36a2eb;border-radius:50%;border-right-color:transparent;animation:spin 1s linear infinite;vertical-align:middle;margin-right:10px"></span> Загрузка аналитики...';
+      fetch('/api/ai-report/history/stats').then(r => r.json()).then(data => {
+        if (!data || !data.daily || !data.total) {
+          statsEl.innerHTML = 'Нет данных по истории AI-отчётов.';
+          return;
+        }
+        // График динамики
+        statsEl.innerHTML = `
+          <h3>Динамика AI-отчётов (30 дней)</h3>
+          <canvas id="aiReportHistoryChart" width="700" height="220" style="max-width:100%;background:#fff;border-radius:8px;box-shadow:0 1px 4px #0001"></canvas>
+          <div style="margin:16px 0 8px 0;font-size:1.1em">
+            <b>Всего отчётов:</b> ${data.total.total} &nbsp; 
+            <b>Успешных:</b> ${data.total.success} &nbsp; 
+            <b>Ошибок:</b> ${data.total.error}
+          </div>
+        `;
+        const chartEl = document.getElementById('aiReportHistoryChart');
+        if (chartEl) {
+          const labels = data.daily.map(d => d.day);
+          const total = data.daily.map(d => d.total);
+          const success = data.daily.map(d => d.success);
+          const error = data.daily.map(d => d.error);
+          if (window.aiReportHistoryChart) window.aiReportHistoryChart.destroy?.();
+          window.aiReportHistoryChart = new window.Chart(chartEl.getContext('2d'), {
+            type: 'bar',
+            data: {
+              labels,
+              datasets: [
+                { label: 'Всего', data: total, backgroundColor: '#36a2eb' },
+                { label: 'Успешные', data: success, backgroundColor: '#4bc0c0' },
+                { label: 'Ошибки', data: error, backgroundColor: '#ff6384' }
+              ]
+            },
+            options: {
+              responsive: true,
+              plugins: { legend: { position: 'top' } },
+              scales: { y: { beginAtZero: true, title: { display: true, text: 'Кол-во' } } }
+            }
+          });
+        }
+      }).catch(e => {
+        statsEl.innerHTML = `<span style="color:red">Ошибка загрузки аналитики: ${escapeHtml(e.message)}</span>`;
+      });
+    }
+  });
+}
 // --- AI-отчёт по эффективности уведомлений ---
 if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', () => {
