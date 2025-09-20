@@ -1,3 +1,347 @@
+// --- Webhook для событий аудита ---
+const fetch = require('node-fetch');
+let auditWebhookUrl = '';
+
+// API: установить URL webhook для аудита
+app.post('/api/webhook/audit', (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL обязателен' });
+  auditWebhookUrl = url;
+  res.json({ success: true });
+});
+
+// Вызов webhook при подозрительных действиях (например, неудачный вход)
+function sendAuditWebhook(payload) {
+  if (auditWebhookUrl) {
+    fetch(auditWebhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  }
+}
+
+// ...existing code...
+// Пример: логировать вход пользователя
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  // ...existing code...
+  if (username === 'admin' && password === 'admin') {
+    const user = { username, role: 'admin' };
+    const token = jwt.sign(user, JWT_SECRET, { expiresIn: '2h' });
+    logAudit(username, 'login', 'Успешный вход');
+    res.json({ token });
+  } else {
+    logAudit(username, 'login_failed', 'Ошибка входа');
+    sendAuditWebhook({ event: 'login_failed', user: username, time: new Date().toISOString() });
+    res.status(401).json({ error: 'Неверные данные' });
+  }
+});
+// --- OAuth2 интеграция для корпоративных клиентов ---
+app.get('/api/auth/oauth2/callback', async (req, res) => {
+  // TODO: интеграция с Google/Microsoft OAuth2
+  // Пример заглушки: обработка авторизации
+  const { code, state } = req.query;
+  if (!code) return res.status(400).json({ error: 'Нет кода авторизации' });
+  // Здесь должен быть обмен code на токен и получение профиля пользователя
+  // ...
+  // Пример ответа
+  res.json({ success: true, info: `OAuth2 авторизация успешна (code: ${code}, state: ${state})` });
+});
+// --- ML-сегментация пользователей и персонализация уведомлений ---
+app.get('/api/ai/segment/:userId', async (req, res) => {
+  const userId = req.params.userId;
+  try {
+    // Получить историю уведомлений пользователя
+    const history = await db.all('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 100', [userId]);
+    // Примитивная ML-логика: если много "clicked" — сегмент "активный", если много "archived" — "пассивный", иначе "обычный"
+    const clicked = history.filter(n => n.status === 'clicked').length;
+    const archived = history.filter(n => n.status === 'archived').length;
+    let segment = 'обычный';
+    if (clicked > 10) segment = 'активный';
+    else if (archived > 20) segment = 'пассивный';
+    // Персонализация: рекомендация по типу уведомлений
+    let recommendType = 'info';
+    if (segment === 'активный') recommendType = 'warning';
+    else if (segment === 'пассивный') recommendType = 'reminder';
+    res.json({ segment, recommendType, stats: { clicked, archived } });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка ML-сегментации' });
+  }
+});
+// --- Интеграция с голосовыми ассистентами (Google Assistant, Alexa) ---
+app.post('/api/voice/command', async (req, res) => {
+  const { userId, command } = req.body;
+  // TODO: интеграция с Google Assistant/Alexa SDK
+  // Пример заглушки: обработка команд
+  let result = '';
+  if (command === 'list_notifications') {
+    // Получить последние уведомления пользователя
+    const rows = await db.all('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 5', [userId]);
+    result = rows.map(n => `${n.type}: ${n.message}`).join('; ');
+  } else if (command === 'mark_all_read') {
+    await db.run('UPDATE notifications SET status = "read" WHERE user_id = ?', [userId]);
+    result = 'Все уведомления отмечены как прочитанные.';
+  } else {
+    result = 'Команда не распознана.';
+  }
+  res.json({ success: true, result });
+});
+// --- Визуализация связей: граф событий и пользователей ---
+app.get('/api/analytics/graph', async (req, res) => {
+  try {
+    // Получить пользователей и события
+    const users = await db.all('SELECT DISTINCT user_id FROM notifications');
+    const events = await db.all('SELECT id, user_id, type, status FROM notifications LIMIT 200');
+    // Узлы: пользователи и события
+    const nodes = users.map(u => ({ id: 'u_' + u.user_id, label: u.user_id, group: 'user' }))
+      .concat(events.map(e => ({ id: 'e_' + e.id, label: e.type + ' (' + e.status + ')', group: 'event' })));
+    // Связи: пользователь -> событие
+    const edges = events.map(e => ({ from: 'u_' + e.user_id, to: 'e_' + e.id }));
+    res.json({ nodes, edges });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка графа' });
+  }
+});
+// --- Расширение RBAC: детализированные права для ролей ---
+db.run(`CREATE TABLE IF NOT EXISTS rbac_roles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT,
+  description TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+db.run(`CREATE TABLE IF NOT EXISTS rbac_permissions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  role_id INTEGER,
+  permission TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// API: получить все роли
+app.get('/api/rbac/roles', async (req, res) => {
+  try {
+    const rows = await db.all('SELECT * FROM rbac_roles ORDER BY created_at DESC');
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка получения ролей' });
+  }
+});
+
+// API: создать роль
+app.post('/api/rbac/roles', async (req, res) => {
+  const { name, description } = req.body;
+  if (!name) return res.status(400).json({ error: 'Имя роли обязательно' });
+  try {
+    await db.run('INSERT INTO rbac_roles (name, description) VALUES (?, ?)', [name, description || '']);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка создания роли' });
+  }
+});
+
+// API: удалить роль
+app.delete('/api/rbac/roles/:id', async (req, res) => {
+  try {
+    await db.run('DELETE FROM rbac_roles WHERE id = ?', [req.params.id]);
+    await db.run('DELETE FROM rbac_permissions WHERE role_id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка удаления роли' });
+  }
+});
+
+// API: получить права роли
+app.get('/api/rbac/permissions/:roleId', async (req, res) => {
+  try {
+    const rows = await db.all('SELECT * FROM rbac_permissions WHERE role_id = ?', [req.params.roleId]);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка получения прав' });
+  }
+});
+
+// API: добавить право роли
+app.post('/api/rbac/permissions', async (req, res) => {
+  const { role_id, permission } = req.body;
+  if (!role_id || !permission) return res.status(400).json({ error: 'role_id и permission обязательны' });
+  try {
+    await db.run('INSERT INTO rbac_permissions (role_id, permission) VALUES (?, ?)', [role_id, permission]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка добавления права' });
+  }
+});
+
+// API: удалить право роли
+app.delete('/api/rbac/permissions/:id', async (req, res) => {
+  try {
+    await db.run('DELETE FROM rbac_permissions WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка удаления права' });
+  }
+});
+// --- Кэширование и оптимизация SQL-запросов ---
+const cache = {};
+function getCache(key, ttl = 60) {
+  const entry = cache[key];
+  if (entry && (Date.now() - entry.time < ttl * 1000)) return entry.value;
+  return null;
+}
+function setCache(key, value) {
+  cache[key] = { value, time: Date.now() };
+}
+
+// Пример: кэшировать /api/analytics/activity на 60 секунд
+app.get('/api/analytics/activity', async (req, res) => {
+  const cached = getCache('analytics_activity');
+  if (cached) return res.json({ activity: cached });
+  try {
+    const activity = await db.all(`SELECT DATE(created_at) as day, COUNT(*) as count FROM notifications GROUP BY day ORDER BY day DESC LIMIT 30`);
+    setCache('analytics_activity', activity);
+    res.json({ activity });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+// --- Интеграция с Prometheus/Grafana: endpoint /metrics ---
+app.get('/metrics', async (req, res) => {
+  try {
+    const notifCount = await db.get('SELECT COUNT(*) as count FROM notifications');
+    const errorCount = await db.get('SELECT COUNT(*) as count FROM errors');
+    const userCount = await db.get('SELECT COUNT(DISTINCT user_id) as count FROM notifications');
+    let metrics = '';
+    metrics += `notifications_total ${notifCount.count}\n`;
+    metrics += `errors_total ${errorCount.count}\n`;
+    metrics += `users_total ${userCount.count}\n`;
+    metrics += `uptime_seconds ${(Date.now() - serverStart) / 1000}\n`;
+    res.set('Content-Type', 'text/plain');
+    res.send(metrics);
+  } catch (e) {
+    res.status(500).send('# Ошибка метрик');
+  }
+});
+// --- Мультиязычные push-уведомления ---
+const pushMessages = {
+  ru: {
+    title: 'Новое уведомление',
+    message: 'У вас новое сообщение!'
+  },
+  en: {
+    title: 'New notification',
+    message: 'You have a new message!'
+  },
+  es: {
+    title: 'Nueva notificación',
+    message: '¡Tienes un nuevo mensaje!'
+  }
+};
+
+app.post('/api/mobile/push/i18n', async (req, res) => {
+  const { userId, lang } = req.body;
+  const msg = pushMessages[lang] || pushMessages['en'];
+  // TODO: интеграция с push-сервисом
+  res.json({ success: true, info: `Push-уведомление для ${userId} (${lang}) отправлено: ${msg.title} - ${msg.message}` });
+});
+// --- Гибкая настройка шаблонов уведомлений ---
+db.run(`CREATE TABLE IF NOT EXISTS notification_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT,
+  type TEXT,
+  content TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// API: получить все шаблоны
+app.get('/api/notification-templates', async (req, res) => {
+  try {
+    const rows = await db.all('SELECT * FROM notification_templates ORDER BY created_at DESC');
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка получения шаблонов' });
+  }
+});
+
+// API: создать шаблон
+app.post('/api/notification-templates', async (req, res) => {
+  const { name, type, content } = req.body;
+  if (!name || !type || !content) return res.status(400).json({ error: 'Заполните все поля' });
+  try {
+    await db.run('INSERT INTO notification_templates (name, type, content) VALUES (?, ?, ?)', [name, type, content]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка создания шаблона' });
+  }
+});
+
+// API: удалить шаблон
+app.delete('/api/notification-templates/:id', async (req, res) => {
+  try {
+    await db.run('DELETE FROM notification_templates WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка удаления шаблона' });
+  }
+});
+// --- Аудит-логика: отслеживание действий пользователей и администраторов ---
+db.run(`CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT,
+  action TEXT,
+  details TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
+function logAudit(userId, action, details) {
+  db.run('INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)', [userId, action, details]);
+}
+
+// Пример использования: логировать вход пользователя
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  // ...existing code...
+  if (username === 'admin' && password === 'admin') {
+    const user = { username, role: 'admin' };
+    const token = jwt.sign(user, JWT_SECRET, { expiresIn: '2h' });
+    logAudit(username, 'login', 'Успешный вход');
+    res.json({ token });
+  } else {
+    logAudit(username, 'login_failed', 'Ошибка входа');
+    res.status(401).json({ error: 'Неверные данные' });
+  }
+});
+
+// API: получить аудит-историю пользователя
+app.get('/api/audit/user/:userId', async (req, res) => {
+  try {
+    const rows = await db.all('SELECT * FROM audit_log WHERE user_id = ? ORDER BY created_at DESC LIMIT 100', [req.params.userId]);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка аудита' });
+  }
+});
+// --- AI-аналитика: рекомендации и прогнозы ---
+// Пример: простая генерация рекомендаций на основе истории уведомлений
+app.get('/api/notifications/ai-recommend/:userId', async (req, res) => {
+  const userId = req.params.userId;
+  try {
+    // Получить историю уведомлений пользователя
+    const history = await db.all('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50', [userId]);
+    // Примитивная логика: если много "warning" или "error" — рекомендовать повысить внимание
+    const warnCount = history.filter(n => n.type === 'warning').length;
+    const errorCount = history.filter(n => n.type === 'error').length;
+    let recommendation = 'Всё нормально.';
+    if (errorCount > 3) recommendation = 'Рекомендуем срочно проверить ошибки.';
+    else if (warnCount > 5) recommendation = 'Обратите внимание на предупреждения.';
+    // Прогноз: если много новых уведомлений — ожидается высокая активность
+    const newCount = history.filter(n => n.status === 'new').length;
+    let forecast = 'Активность стабильна.';
+    if (newCount > 10) forecast = 'Ожидается высокая активность.';
+    res.json({ recommendation, forecast, stats: { warnCount, errorCount, newCount } });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка AI-аналитики' });
+  }
+});
 // --- Push-уведомления для мобильных клиентов ---
 app.post('/api/mobile/push', async (req, res) => {
   const { userId, title, message } = req.body;

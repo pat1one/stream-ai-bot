@@ -1,3 +1,69 @@
+// --- Голосовые команды: обработчик ---
+document.addEventListener('DOMContentLoaded', () => {
+  const voiceForm = document.getElementById('voiceForm');
+  const voiceUserId = document.getElementById('voiceUserId');
+  const voiceCommand = document.getElementById('voiceCommand');
+  const voiceResult = document.getElementById('voiceResult');
+  if (voiceForm && voiceUserId && voiceCommand && voiceResult) {
+    voiceForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      voiceResult.textContent = '';
+      const userId = voiceUserId.value.trim();
+      const command = voiceCommand.value;
+      if (!userId || !command) {
+        voiceResult.textContent = 'Заполните все поля.';
+        return;
+      }
+      voiceResult.innerHTML = '<em>Запрос...</em>';
+      try {
+        const res = await fetch('/api/voice/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, command })
+        });
+        const data = await res.json();
+        if (data.success) {
+          voiceResult.innerHTML = `<b>Результат:</b> ${data.result}`;
+        } else {
+          voiceResult.innerHTML = '<span style="color:#f43">Ошибка выполнения</span>';
+        }
+      } catch (e) {
+        voiceResult.innerHTML = '<span style="color:#f43">Ошибка запроса</span>';
+      }
+    });
+  }
+});
+// --- AI-рекомендации и прогнозы: обработчик ---
+document.addEventListener('DOMContentLoaded', () => {
+  const aiForm = document.getElementById('aiRecommendForm');
+  const aiUserId = document.getElementById('aiUserId');
+  const aiResult = document.getElementById('aiRecommendResult');
+  if (aiForm && aiUserId && aiResult) {
+    aiForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      aiResult.textContent = '';
+      const userId = aiUserId.value.trim();
+      if (!userId) {
+        aiResult.textContent = 'Введите ID пользователя.';
+        return;
+      }
+      aiResult.innerHTML = '<em>Запрос...</em>';
+      try {
+        const res = await fetch(`/api/notifications/ai-recommend/${userId}`);
+        const data = await res.json();
+        if (data.error) {
+          aiResult.innerHTML = `<span style="color:#f43">${data.error}</span>`;
+        } else {
+          aiResult.innerHTML = `<b>Рекомендация:</b> ${data.recommendation}<br>
+            <b>Прогноз:</b> ${data.forecast}<br>
+            <b>Статистика:</b> Предупреждений: ${data.stats.warnCount}, Ошибок: ${data.stats.errorCount}, Новых: ${data.stats.newCount}`;
+        }
+      } catch (e) {
+        aiResult.innerHTML = '<span style="color:#f43">Ошибка запроса</span>';
+      }
+    });
+  }
+});
 // --- Drag-and-drop, поиск, фильтрация уведомлений ---
 document.addEventListener('DOMContentLoaded', () => {
   const sortableList = document.getElementById('notificationSortableList');

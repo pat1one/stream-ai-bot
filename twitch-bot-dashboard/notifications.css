@@ -1,3 +1,83 @@
+/* --- Голосовые команды (Assistant/Alexa) --- */
+#voicePanel {
+  background: var(--panel-bg, #f8f9fa);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+#voicePanel h2 {
+  margin-top: 0;
+  font-size: 1.3em;
+}
+#voiceForm label {
+  font-weight: 500;
+  margin-right: 1em;
+}
+#voiceForm input[type="text"], #voiceForm select {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+#voiceForm button {
+  margin-left: 1em;
+  padding: 6px 18px;
+  border-radius: 4px;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+#voiceForm button:hover {
+  background: #4338ca;
+}
+#voiceResult {
+  color: #4338ca;
+  font-weight: 500;
+  min-height: 1.2em;
+  margin-top: 1em;
+}
+/* --- AI-рекомендации и прогнозы --- */
+#aiRecommendPanel {
+  background: var(--panel-bg, #f8f9fa);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+#aiRecommendPanel h2 {
+  margin-top: 0;
+  font-size: 1.3em;
+}
+#aiRecommendForm label {
+  font-weight: 500;
+  margin-right: 1em;
+}
+#aiRecommendForm input[type="text"] {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+#aiRecommendForm button {
+  margin-left: 1em;
+  padding: 6px 18px;
+  border-radius: 4px;
+  background: #10b981;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+#aiRecommendForm button:hover {
+  background: #059669;
+}
+#aiRecommendResult {
+  color: #059669;
+  font-weight: 500;
+  min-height: 1.2em;
+  margin-top: 1em;
+}
 /* --- Сортировка и фильтрация уведомлений --- */
 #notificationsSortPanel {
   background: var(--panel-bg, #f8f9fa);

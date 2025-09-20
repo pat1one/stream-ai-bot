@@ -1,3 +1,31 @@
+    <!-- Раздел: Голосовые команды (Assistant/Alexa) -->
+    <section id="voicePanel" class="dashboard-section">
+      <h2>Голосовые команды (Assistant/Alexa)</h2>
+      <form id="voiceForm" style="margin-bottom:1em;">
+        <label>ID пользователя:
+          <input type="text" id="voiceUserId" required style="width:180px;">
+        </label>
+        <label style="margin-left:1em;">Команда:
+          <select id="voiceCommand" required>
+            <option value="list_notifications">Список уведомлений</option>
+            <option value="mark_all_read">Отметить все как прочитанные</option>
+          </select>
+        </label>
+        <button type="submit">Выполнить</button>
+      </form>
+      <div id="voiceResult"></div>
+    </section>
+    <!-- Раздел: AI-рекомендации и прогнозы -->
+    <section id="aiRecommendPanel" class="dashboard-section">
+      <h2>AI-рекомендации и прогнозы</h2>
+      <form id="aiRecommendForm" style="margin-bottom:1em;">
+        <label>ID пользователя:
+          <input type="text" id="aiUserId" required style="width:180px;">
+        </label>
+        <button type="submit">Получить рекомендации</button>
+      </form>
+      <div id="aiRecommendResult"></div>
+    </section>
     <!-- Раздел: Примеры интеграции и интерактивные подсказки -->
     <section id="integrationExamplesPanel" class="dashboard-section">
       <h2>Примеры интеграции и подсказки</h2>
