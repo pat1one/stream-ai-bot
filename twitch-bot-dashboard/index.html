@@ -1,12 +1,295 @@
+    <!-- Раздел: Примеры интеграции и интерактивные подсказки -->
+    <section id="integrationExamplesPanel" class="dashboard-section">
+      <h2>Примеры интеграции и подсказки</h2>
+      <div>
+        <h3>Пример: Node.js</h3>
+        <pre><code>fetch('/api/notifications', {
+  headers: { Authorization: 'Bearer &lt;TOKEN&gt;' }
+})
+  .then(res =&gt; res.json())
+  .then(data =&gt; console.log(data));
+// ...</code></pre>
+        <h3>Пример: Python</h3>
+        <pre><code>import requests
+resp = requests.get('https://yourdomain/api/notifications',
+  headers={'Authorization': 'Bearer &lt;TOKEN&gt;'} )
+print(resp.json())
+...</code></pre>
+        <h3>Интерактивные подсказки</h3>
+        <button id="showHelpBtn">Показать подсказку по API</button>
+        <div id="helpTip" style="margin-top:1em;display:none;"></div>
+      </div>
+    </section>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Раздел: Сортировка и фильтрация уведомлений -->
+    <section id="notificationsSortPanel" class="dashboard-section">
+      <h2>Сортировка и фильтрация уведомлений</h2>
+      <input type="text" id="notificationSearch" placeholder="Поиск..." style="margin-bottom:1em;width:220px;">
+      <select id="notificationStatusFilter" style="margin-left:1em;">
+        <option value="">Все статусы</option>
+        <option value="new">Новые</option>
+        <option value="read">Прочитанные</option>
+        <option value="clicked">Отклик</option>
+        <option value="archived">Архив</option>
+      </select>
+      <select id="notificationTypeFilter" style="margin-left:1em;">
+        <option value="">Все типы</option>
+        <option value="info">Инфо</option>
+        <option value="warning">Внимание</option>
+        <option value="error">Ошибка</option>
+      </select>
+      <div id="notificationSortableList" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: Справка и Swagger/OpenAPI -->
+    <section id="docsPanel" class="dashboard-section">
+      <h2>Справка и API документация</h2>
+      <div>
+        <p>Полная документация API доступна по <a href="/api/docs" target="_blank">Swagger/OpenAPI</a>.</p>
+        <ul>
+          <li>Все методы API описаны и доступны для тестирования.</li>
+          <li>Для интеграции используйте спецификацию OpenAPI.</li>
+          <li>Вопросы и примеры доступны в разделе справки ниже.</li>
+        </ul>
+        <h3>FAQ</h3>
+        <ul>
+          <li><b>Как получить список уведомлений?</b> — <code>GET /api/notifications</code></li>
+          <li><b>Как добавить webhook?</b> — <code>POST /api/integration/webhook</code></li>
+          <li><b>Как отправить email-отчёт?</b> — <code>POST /api/report/email</code></li>
+          <li><b>Как проверить статус сервера?</b> — <code>GET /api/health</code></li>
+        </ul>
+      </div>
+    </section>
+    <!-- Раздел: Мониторинг и Health-check -->
+    <section id="monitoringPanel" class="dashboard-section">
+      <h2>Мониторинг и Health-check</h2>
+      <div id="healthStatus" style="margin-bottom:1em;"></div>
+      <div id="monitoringMetrics"></div>
+    </section>
+    <!-- Раздел: Email отчёты -->
+    <section id="emailReportPanel" class="dashboard-section">
+      <h2>Отчёты на Email</h2>
+      <form id="emailReportForm" style="margin-bottom:1em;">
+        <label>Email:
+          <input type="email" id="emailReportEmail" required>
+        </label>
+        <label style="margin-left:1em;">Тема:
+          <input type="text" id="emailReportSubject" required>
+        </label>
+        <label style="margin-left:1em;">Текст:
+          <input type="text" id="emailReportBody" required>
+        </label>
+        <button type="submit">Отправить</button>
+      </form>
+      <div id="emailReportResult" style="margin-bottom:2em;"></div>
+      <h3>История отправок</h3>
+      <div id="emailReportHistory"></div>
+    </section>
+    <!-- Раздел: Планировщик уведомлений -->
+    <section id="schedulerPanel" class="dashboard-section">
+      <h2>Планировщик уведомлений</h2>
+      <form id="schedulerForm" style="margin-bottom:1em;">
+        <label>Заголовок:
+          <input type="text" id="schedulerTitle" required>
+        </label>
+        <label style="margin-left:1em;">Сообщение:
+          <input type="text" id="schedulerMessage" required>
+        </label>
+        <label style="margin-left:1em;">ID пользователя:
+          <input type="text" id="schedulerUserId">
+        </label>
+        <label style="margin-left:1em;">Cron:
+          <input type="text" id="schedulerCron" placeholder="* * * * *" required style="width:120px;">
+        </label>
+        <button type="submit">Добавить</button>
+      </form>
+      <div id="schedulerResult" style="margin-bottom:2em;"></div>
+      <h3>Список задач</h3>
+      <div id="schedulerList"></div>
+    </section>
+    <!-- Раздел: Мобильные уведомления (API) -->
+    <section id="mobileNotificationsPanel" class="dashboard-section">
+      <h2>Мобильные уведомления (API)</h2>
+      <div id="mobileNotificationsList"></div>
+    </section>
+    <!-- Раздел: Webhook для внешних систем (Slack, Teams) -->
+    <section id="webhookPanel" class="dashboard-section">
+      <h2>Webhook интеграции (Slack, Teams)</h2>
+      <form id="webhookForm" style="margin-bottom:1em;">
+        <label>Тип:
+          <select id="webhookType">
+            <option value="slack">Slack</option>
+            <option value="teams">Teams</option>
+          </select>
+        </label>
+        <label style="margin-left:1em;">URL:
+          <input type="text" id="webhookUrl" style="width:320px;">
+        </label>
+        <button type="submit">Сохранить</button>
+      </form>
+      <div id="webhookResult" style="margin-bottom:2em;"></div>
+      <h3>Список интеграций</h3>
+      <div id="webhookList"></div>
+    </section>
+    <!-- Раздел: AI-тренды и прогнозы оттока -->
+    <section id="aiTrendsPanel" class="dashboard-section">
+      <h2>AI-тренды и прогнозы оттока</h2>
+      <button id="loadTrendsBtn">Показать тренды</button>
+      <button id="loadChurnBtn" style="margin-left:1em;">Показать прогноз оттока</button>
+      <div id="aiTrendsResult" style="margin-top:1em;"></div>
+      <div id="aiChurnResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: Персонализированные AI-рекомендации для сегментов -->
+    <section id="segmentAIRecommendPanel" class="dashboard-section">
+      <h2>AI-рекомендации по сегментам</h2>
+      <label>Выберите сегмент:
+        <select id="segmentAISelect">
+          <option value="VIP">VIP</option>
+          <option value="New Users">New Users</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+      </label>
+      <button id="loadSegmentAIRecommendBtn" style="margin-left:1em;">Показать рекомендации</button>
+      <div id="segmentAIRecommendResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: Двухфакторная аутентификация для админов -->
+    <section id="admin2faPanel" class="dashboard-section">
+      <h2>Двухфакторная аутентификация (2FA)</h2>
+      <button id="setup2faBtn">Настроить 2FA</button>
+      <div id="setup2faResult" style="margin-top:1em;"></div>
+      <form id="verify2faForm" style="margin-top:2em;">
+        <label>Введите код из приложения:<br>
+          <input type="text" id="verify2faToken" maxlength="6" style="width:120px;">
+        </label>
+        <button type="submit">Проверить код</button>
+      </form>
+      <div id="verify2faResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: Обратная связь, FAQ и поддержка -->
+    <section id="supportPanel" class="dashboard-section">
+      <h2>Обратная связь и поддержка</h2>
+      <form id="feedbackForm" style="margin-bottom:1em;">
+        <label>Ваш вопрос или отзыв:<br>
+          <textarea id="feedbackText" rows="3" style="width:100%;"></textarea>
+        </label><br>
+        <button type="submit">Отправить</button>
+      </form>
+      <div id="feedbackResult" style="margin-bottom:2em;"></div>
+      <h3>FAQ</h3>
+      <div id="faqList"></div>
+    </section>
+    <!-- Раздел: Расширенные BI-отчёты и фильтры -->
+    <section id="biReportsPanel" class="dashboard-section">
+      <h2>BI-отчёты и фильтры</h2>
+      <div style="margin-bottom:1em;">
+        <label>Фильтр по каналу:
+          <select id="biChannelFilter">
+            <option value="">Все</option>
+            <option value="Email">Email</option>
+            <option value="Telegram">Telegram</option>
+            <option value="Discord">Discord</option>
+            <option value="Push">Push</option>
+          </select>
+        </label>
+        <label style="margin-left:1em;">Фильтр по сегменту:
+          <select id="biSegmentFilter">
+            <option value="">Все</option>
+            <option value="VIP">VIP</option>
+            <option value="New Users">New Users</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </label>
+        <button id="loadBIReportsBtn" style="margin-left:1em;">Показать отчёты</button>
+        <button id="exportBIReportsBtn" style="margin-left:1em;">Экспортировать</button>
+      </div>
+      <div id="biReportsResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: Автоматическая оптимизация рассылок (AI и A/B отчёты) -->
+    <section id="autoOptimizePanel" class="dashboard-section">
+      <h2>Автоматическая оптимизация рассылок</h2>
+      <button id="loadABReportsBtn">Показать A/B отчёты</button>
+      <button id="runAIOptimizeBtn" style="margin-left:1em;">Запустить AI-оптимизацию</button>
+      <div id="autoOptimizeResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: Интеграция с CRM/ERP системами -->
+    <section id="integrationPanel" class="dashboard-section">
+      <h2>Интеграция с CRM/ERP системами</h2>
+      <button id="exportDataBtn">Экспорт данных</button>
+      <input type="file" id="importDataInput" style="margin-top:1em;">
+      <button id="importDataBtn">Импортировать данные</button>
+      <div id="integrationResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: Система уведомлений для событий и ошибок -->
+    <section id="notificationsPanel" class="dashboard-section">
+      <h2>Уведомления о событиях и ошибках</h2>
+      <button id="loadNotificationsBtn">Загрузить уведомления</button>
+      <div id="notificationsResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: AI-аналитика и рекомендации -->
+    <section id="aiAnalyticsPanel" class="dashboard-section">
+      <h2>AI-аналитика и рекомендации</h2>
+      <button id="loadAIAnalyticsBtn">Получить рекомендации</button>
+      <div id="aiAnalyticsResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: Визуализация сложных связей (heatmap, network graph) -->
+    <section id="correlationHeatmapPanel" class="dashboard-section">
+      <h2>Тепловая карта корреляций</h2>
+      <canvas id="correlationHeatmap" style="max-width:100%;height:320px;"></canvas>
+      <button id="loadHeatmapBtn">Загрузить тепловую карту</button>
+      <div id="heatmapResult" style="margin-top:1em;"></div>
+    </section>
+
+    <section id="networkGraphPanel" class="dashboard-section">
+      <h2>Граф связей каналов и сегментов</h2>
+      <div id="networkGraph" style="width:100%;height:340px;border:1px solid #e0e0e0;border-radius:8px;"></div>
+      <button id="loadNetworkGraphBtn">Загрузить граф связей</button>
+      <div id="networkGraphResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: Drag-and-drop редактор шаблонов и сегментов -->
+    <section id="dragDropEditorPanel" class="dashboard-section">
+      <h2>Drag-and-drop редактор шаблонов и сегментов</h2>
+      <div id="dragDropEditor" class="dragdrop-editor">
+        <div class="template-list" id="templateList">
+          <h3>Шаблоны</h3>
+          <!-- Динамически заполняется -->
+        </div>
+        <div class="segment-list" id="segmentList">
+          <h3>Сегменты</h3>
+          <!-- Динамически заполняется -->
+        </div>
+      </div>
+      <button id="saveDragDropConfigBtn">Сохранить изменения</button>
+      <div id="dragDropEditorResult" style="margin-top:1em;"></div>
+    </section>
+    <!-- Раздел: История аудита действий пользователей -->
+    <section id="auditHistoryPanel" class="dashboard-section">
+      <h2>История аудита действий пользователей</h2>
+      <button id="loadAuditHistoryBtn">Загрузить историю аудита</button>
+      <div id="auditHistoryResult" style="margin-top:1em;"></div>
+    </section>
 <!doctype html>
 <html lang="ru">
 <head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Stream AI Bot — Панель управления</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <div style="text-align:right;margin-bottom:1em;">
+      <label style="cursor:pointer;font-weight:500;">
+        <select id="langSelect" style="vertical-align:middle;">
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+        </select>
+        Язык
+      </label>
+    </div>
+    <div style="text-align:right;margin-bottom:1em;">
+      <label style="cursor:pointer;font-weight:500;">
+        <input type="checkbox" id="themeToggle" style="vertical-align:middle;"> Тёмная тема
+      </label>
+    </div>
   <header class="topbar">
     <h1>Stream AI Bot — Панель управления</h1>
     <div style="display:flex;gap:12px;align-items:center">

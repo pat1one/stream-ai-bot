@@ -1,3 +1,261 @@
+/* --- Сортировка и фильтрация уведомлений --- */
+#notificationsSortPanel {
+  background: var(--panel-bg, #f8f9fa);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+#notificationsSortPanel h2 {
+  margin-top: 0;
+  font-size: 1.3em;
+}
+#notificationSortableList ul {
+  list-style: none;
+  padding-left: 0;
+}
+.sortable-item {
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+  cursor: grab;
+  background: #fff;
+  transition: background 0.2s;
+}
+.sortable-item:active {
+  cursor: grabbing;
+}
+#notificationSearch, #notificationStatusFilter, #notificationTypeFilter {
+  font-size: 1em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+/* --- Справка и Swagger/OpenAPI --- */
+#docsPanel {
+  background: var(--panel-bg, #f8f9fa);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+#docsPanel h2 {
+  margin-top: 0;
+  font-size: 1.3em;
+}
+#docsPanel a {
+  color: #2563eb;
+  text-decoration: underline;
+  font-weight: 500;
+}
+#docsPanel ul {
+  margin: 0.5em 0 1em 1em;
+  padding-left: 1em;
+}
+#docsPanel code {
+  background: #f3f4f6;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.98em;
+}
+/* --- Мониторинг и Health-check --- */
+#monitoringPanel {
+  background: var(--panel-bg, #f8f9fa);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+#monitoringPanel h2 {
+  margin-top: 0;
+  font-size: 1.3em;
+}
+#healthStatus, #monitoringMetrics {
+  font-size: 1.08em;
+  background: #fff;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+}
+/* --- Email отчёты --- */
+#emailReportPanel {
+  background: var(--panel-bg, #f8f9fa);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+#emailReportPanel h2 {
+  margin-top: 0;
+  font-size: 1.3em;
+}
+#emailReportForm label {
+  font-weight: 500;
+  margin-right: 1em;
+}
+#emailReportForm input[type="text"], #emailReportForm input[type="email"] {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+#emailReportForm button {
+  margin-left: 1em;
+  padding: 6px 18px;
+  border-radius: 4px;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+#emailReportForm button:hover {
+  background: #4338ca;
+}
+#emailReportResult {
+  color: #4338ca;
+  font-weight: 500;
+  min-height: 1.2em;
+}
+#emailReportHistory ul {
+  list-style: none;
+  padding-left: 0;
+}
+#emailReportHistory li {
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  gap: 1em;
+}
+/* --- Планировщик уведомлений --- */
+#schedulerPanel {
+  background: var(--panel-bg, #f8f9fa);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+#schedulerPanel h2 {
+  margin-top: 0;
+  font-size: 1.3em;
+}
+#schedulerForm label {
+  font-weight: 500;
+  margin-right: 1em;
+}
+#schedulerForm input[type="text"] {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+#schedulerForm button {
+  margin-left: 1em;
+  padding: 6px 18px;
+  border-radius: 4px;
+  background: #10b981;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+#schedulerForm button:hover {
+  background: #059669;
+}
+#schedulerResult {
+  color: #059669;
+  font-weight: 500;
+  min-height: 1.2em;
+}
+#schedulerList ul {
+  list-style: none;
+  padding-left: 0;
+}
+#schedulerList li {
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  gap: 1em;
+}
+.scheduler-delete {
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 0.95em;
+}
+.scheduler-delete:hover {
+  background: #b91c1c;
+}
+/* --- Мобильные уведомления (API) --- */
+#mobileNotificationsPanel {
+  background: var(--panel-bg, #f8f9fa);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+#mobileNotificationsPanel h2 {
+  margin-top: 0;
+  font-size: 1.3em;
+}
+#mobileNotificationsList ul {
+  list-style: none;
+  padding-left: 0;
+}
+#mobileNotificationsList li {
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+}
+/* --- Webhook интеграции (Slack, Teams) --- */
+#webhookPanel {
+  background: var(--panel-bg, #f8f9fa);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+#webhookPanel h2 {
+  margin-top: 0;
+  font-size: 1.3em;
+}
+#webhookForm label {
+  font-weight: 500;
+  margin-right: 1em;
+}
+#webhookForm input[type="text"] {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+#webhookForm button {
+  margin-left: 1em;
+  padding: 6px 18px;
+  border-radius: 4px;
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+#webhookForm button:hover {
+  background: #2563eb;
+}
+#webhookResult {
+  color: #2563eb;
+  font-weight: 500;
+  min-height: 1.2em;
+}
+#webhookList ul {
+  list-style: none;
+  padding-left: 0;
+}
+#webhookList li {
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+}
 /* Стили для уведомлений */
 .notifications-card {
   max-height: 400px;
@@ -135,12 +393,6 @@
   .parameter-form {
     grid-template-columns: 1fr;
   }
-}
-  overflow-y: auto;
-  padding: var(--space-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
 }
 
 .notification {

@@ -1,3 +1,692 @@
+// --- Push-уведомления для мобильных клиентов ---
+app.post('/api/mobile/push', async (req, res) => {
+  const { userId, title, message } = req.body;
+  // TODO: интеграция с push-сервисом (Firebase, OneSignal и др.)
+  // Пример заглушки
+  res.json({ success: true, info: `Push-уведомление для ${userId} отправлено (заглушка)` });
+});
+// --- Интеграции: Viber, WhatsApp, BI-системы ---
+// Viber
+app.post('/api/integration/viber', async (req, res) => {
+  const { userId, message } = req.body;
+  // TODO: интеграция с Viber API
+  // Пример заглушки
+  res.json({ success: true, info: `Сообщение для ${userId} отправлено в Viber (заглушка)` });
+});
+
+// WhatsApp
+app.post('/api/integration/whatsapp', async (req, res) => {
+  const { userId, message } = req.body;
+  // TODO: интеграция с WhatsApp API
+  // Пример заглушки
+  res.json({ success: true, info: `Сообщение для ${userId} отправлено в WhatsApp (заглушка)` });
+});
+
+// BI-системы
+app.post('/api/integration/bi', async (req, res) => {
+  const { data } = req.body;
+  // TODO: интеграция с внешней BI-системой
+  // Пример заглушки
+  res.json({ success: true, info: `Данные переданы в BI-систему (заглушка)` });
+});
+// --- Автоматизация: автоархивация уведомлений, автоочистка логов/ошибок ---
+const ARCHIVE_DAYS = 90;
+const CLEANUP_DAYS = 30;
+const schedule = require('node-schedule');
+
+// Архивация уведомлений старше ARCHIVE_DAYS
+function archiveOldNotifications() {
+  const cutoff = new Date(Date.now() - ARCHIVE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  db.run('UPDATE notifications SET status = "archived" WHERE created_at < ? AND status != "archived"', [cutoff]);
+}
+
+// Очистка логов и ошибок старше CLEANUP_DAYS
+function cleanupLogsAndErrors() {
+  const cutoff = new Date(Date.now() - CLEANUP_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  db.run('DELETE FROM logs WHERE created_at < ?', [cutoff]);
+  db.run('DELETE FROM errors WHERE created_at < ?', [cutoff]);
+}
+
+// Планировщик: ежедневно в 03:00
+schedule.scheduleJob('0 3 * * *', () => {
+  archiveOldNotifications();
+  cleanupLogsAndErrors();
+});
+
+// API: ручной запуск автоархивации и очистки
+app.post('/api/automation/archive', (req, res) => {
+  archiveOldNotifications();
+  res.json({ success: true });
+});
+app.post('/api/automation/cleanup', (req, res) => {
+  cleanupLogsAndErrors();
+  res.json({ success: true });
+});
+// --- Аналитика: отчёты по сегментам, графики активности и отклика ---
+// Сегменты пользователей по статусу, активности, роли
+app.get('/api/analytics/segments', async (req, res) => {
+  try {
+    const segments = await db.all(`SELECT status, COUNT(*) as count FROM notifications GROUP BY status`);
+    const roles = await db.all(`SELECT role, COUNT(*) as count FROM users GROUP BY role`);
+    res.json({ segments, roles });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// График активности: уведомления по дням
+app.get('/api/analytics/activity', async (req, res) => {
+  try {
+    const activity = await db.all(`SELECT DATE(created_at) as day, COUNT(*) as count FROM notifications GROUP BY day ORDER BY day DESC LIMIT 30`);
+    res.json({ activity });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// График отклика: количество прочитанных/откликнувшихся
+app.get('/api/analytics/response', async (req, res) => {
+  try {
+    const response = await db.all(`SELECT status, COUNT(*) as count FROM notifications WHERE status IN ('read','clicked') GROUP BY status`);
+    res.json({ response });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+// --- JWT-аутентификация: безопасность API ---
+const jwt = require('jsonwebtoken');
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
+
+function authenticateJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) return res.status(403).json({ error: 'Недействительный токен' });
+      req.user = user;
+      next();
+    });
+  } else {
+    res.status(401).json({ error: 'Требуется авторизация' });
+  }
+}
+
+// Пример: выдача токена (логин)
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  // Примитивная проверка, заменить на реальную
+  if (username === 'admin' && password === 'admin') {
+    const user = { username, role: 'admin' };
+    const token = jwt.sign(user, JWT_SECRET, { expiresIn: '2h' });
+    res.json({ token });
+  } else {
+    res.status(401).json({ error: 'Неверные данные' });
+  }
+});
+
+// Ограничить доступ к чувствительным маршрутам
+app.use('/api/notifications', authenticateJWT);
+app.use('/api/integration/webhook', authenticateJWT);
+app.use('/api/report/email', authenticateJWT);
+// --- Swagger/OpenAPI и справка: backend ---
+const swaggerUi = require('swagger-ui-express');
+const swaggerJsdoc = require('swagger-jsdoc');
+
+const swaggerSpec = swaggerJsdoc({
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'Stream AI Bot API',
+      version: '1.0.0',
+      description: 'Документация API для Stream AI Bot'
+    },
+    servers: [{ url: '/' }]
+  },
+  apis: ['./server.js']
+});
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// --- Мониторинг и health-check: backend API ---
+const os = require('os');
+let serverStart = Date.now();
+
+app.get('/api/health', async (req, res) => {
+  let dbStatus = 'ok';
+  try {
+    await db.get('SELECT 1');
+  } catch (e) {
+    dbStatus = 'error';
+  }
+  res.json({
+    status: 'ok',
+    uptime: Math.floor((Date.now() - serverStart) / 1000),
+    db: dbStatus,
+    memory: process.memoryUsage(),
+    load: os.loadavg(),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Пример метрик: количество уведомлений, ошибок, пользователей
+app.get('/api/monitoring', async (req, res) => {
+  try {
+    const notifCount = await db.get('SELECT COUNT(*) as count FROM notifications');
+    const userCount = await db.get('SELECT COUNT(DISTINCT user_id) as count FROM notifications');
+    const errorCount = await db.get('SELECT COUNT(*) as count FROM errors');
+    res.json({
+      notifications: notifCount.count,
+      users: userCount.count,
+      errors: errorCount.count,
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+// --- Email отчёты: backend API ---
+const nodemailer = require('nodemailer');
+
+db.run(`CREATE TABLE IF NOT EXISTS email_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT,
+  subject TEXT,
+  body TEXT,
+  status TEXT,
+  error TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// API: отправить отчёт на email
+app.post('/api/report/email', async (req, res) => {
+  const { email, subject, body } = req.body;
+  if (!email || !subject || !body) return res.status(400).json({ error: 'Заполните все поля' });
+  let status = 'sent', error = '';
+  try {
+    // Настройка SMTP (пример: Gmail, заменить на свой)
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      }
+    });
+    await transporter.sendMail({
+      from: process.env.SMTP_USER,
+      to: email,
+      subject,
+      html: body
+    });
+  } catch (e) {
+    status = 'error';
+    error = e.message;
+  }
+  await db.run('INSERT INTO email_reports (email, subject, body, status, error) VALUES (?, ?, ?, ?, ?)', [email, subject, body, status, error]);
+  res.json({ success: status === 'sent', error });
+});
+
+// API: история отправок email-отчётов
+app.get('/api/report/email/history', async (req, res) => {
+  try {
+    const rows = await db.all('SELECT * FROM email_reports ORDER BY created_at DESC LIMIT 100');
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+// --- Планировщик уведомлений: backend API и задачи ---
+const schedule = require('node-schedule');
+
+// Таблица для задач планировщика
+db.run(`CREATE TABLE IF NOT EXISTS notification_schedule (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT,
+  message TEXT,
+  user_id TEXT,
+  cron TEXT,
+  status TEXT DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// API: получить все задачи планировщика
+app.get('/api/scheduler', async (req, res) => {
+  try {
+    const rows = await db.all('SELECT * FROM notification_schedule ORDER BY created_at DESC');
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// API: создать задачу планировщика
+app.post('/api/scheduler', async (req, res) => {
+  try {
+    const { title, message, user_id, cron } = req.body;
+    if (!title || !message || !cron) return res.status(400).json({ error: 'Заполните все поля' });
+    await db.run('INSERT INTO notification_schedule (title, message, user_id, cron) VALUES (?, ?, ?, ?)', [title, message, user_id || '', cron]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// API: удалить задачу планировщика
+app.delete('/api/scheduler/:id', async (req, res) => {
+  try {
+    await db.run('DELETE FROM notification_schedule WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Запуск задач планировщика
+async function startScheduler() {
+  const jobs = await db.all('SELECT * FROM notification_schedule WHERE status = "active"');
+  jobs.forEach(job => {
+    schedule.scheduleJob(job.cron, async () => {
+      await db.run('INSERT INTO notifications (title, message, user_id, status, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)', [job.title, job.message, job.user_id, 'scheduled']);
+    });
+  });
+}
+startScheduler();
+// --- API для мобильных приложений: выдача уведомлений ---
+app.get('/api/mobile/notifications', async (req, res) => {
+  try {
+    const userId = req.query.userId;
+    const status = req.query.status;
+    let sql = 'SELECT * FROM notifications';
+    const params = [];
+    if (userId || status) {
+      sql += ' WHERE ';
+      if (userId) {
+        sql += 'user_id = ?';
+        params.push(userId);
+      }
+      if (userId && status) sql += ' AND ';
+      if (status) {
+        sql += 'status = ?';
+        params.push(status);
+      }
+    }
+    sql += ' ORDER BY created_at DESC LIMIT 100';
+    const rows = await db.all(sql, params);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+// --- API: Webhook для внешних систем (Slack, Teams) ---
+app.post('/api/integration/webhook', rbacManager.requireAdmin, asyncHandler(async (req, res) => {
+  const { type, url } = req.body;
+  // Сохранить webhook в БД
+  await db.run('INSERT OR REPLACE INTO webhooks (type, url) VALUES (?, ?)', [type, url]);
+  res.json({ success: true });
+}));
+
+app.get('/api/integration/webhook', rbacManager.requireAdmin, asyncHandler(async (req, res) => {
+  const rows = await db.all('SELECT * FROM webhooks');
+  res.json({ webhooks: rows });
+}));
+
+// Пример отправки события в Slack/Teams
+async function sendWebhookEvent(type, message) {
+  const row = await db.get('SELECT url FROM webhooks WHERE type=?', [type]);
+  if (row && row.url) {
+    await fetch(row.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: message })
+    });
+  }
+}
+// --- API: AI-тренды и прогнозы оттока ---
+app.get('/api/analytics/trends', rbacManager.requirePermission(PERMISSIONS.VIEW_ANALYTICS), asyncHandler(async (req, res) => {
+  // Пример: тренды по каналам и сегментам
+  const trends = [
+    { channel: 'Email', segment: 'VIP', trend: 'Рост отклика', value: '+12%', period: '7 дней' },
+    { channel: 'Telegram', segment: 'Inactive', trend: 'Снижение активности', value: '-8%', period: '7 дней' },
+    { channel: 'Push', segment: 'New Users', trend: 'Стабильный рост', value: '+5%', period: '7 дней' }
+  ];
+  res.json({ trends });
+}));
+
+app.get('/api/analytics/churn', rbacManager.requirePermission(PERMISSIONS.VIEW_ANALYTICS), asyncHandler(async (req, res) => {
+  // Пример: прогноз оттока по сегментам
+  const churn = [
+    { segment: 'VIP', forecast: '3% пользователей могут уйти в течение месяца.' },
+    { segment: 'New Users', forecast: '10% пользователей требуют дополнительной мотивации.' },
+    { segment: 'Inactive', forecast: 'Отток выше нормы, требуется реактивация.' }
+  ];
+  res.json({ churn });
+}));
+// --- API: Персонализированные AI-рекомендации для сегментов ---
+app.get('/api/notifications/ai-recommend/segment', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { segment } = req.query;
+  // Пример: рекомендации для сегмента
+  const recommendations = {
+    VIP: [
+      { type: 'Рекомендация', text: 'Используйте персонализированные email-рассылки для VIP.' },
+      { type: 'Оптимизация', text: 'Увеличьте частоту push-уведомлений.' }
+    ],
+    'New Users': [
+      { type: 'Рекомендация', text: 'Приветственное сообщение в Telegram увеличивает конверсию.' },
+      { type: 'Аналитика', text: 'A/B тестирование показало рост отклика на 10%.' }
+    ],
+    Inactive: [
+      { type: 'Рекомендация', text: 'Реактивируйте пользователей через Discord.' },
+      { type: 'Аналитика', text: 'Сегмент требует дополнительной мотивации.' }
+    ]
+  };
+  res.json({ recommendations: recommendations[segment] || [] });
+}));
+// --- API: Логирование подозрительных действий и интеграция с SIEM ---
+app.post('/api/audit/suspicious', rbacManager.requireAdmin, asyncHandler(async (req, res) => {
+  const { user_id, action, details } = req.body;
+  // Логировать подозрительное действие в БД
+  await db.run('INSERT INTO suspicious_actions (user_id, action, details, created_at) VALUES (?, ?, ?, ?)', [user_id, action, details, new Date().toISOString()]);
+  // Интеграция с SIEM (пример: отправка webhook)
+  // await fetch('https://siem.example.com/webhook', { method: 'POST', body: JSON.stringify({ user_id, action, details }) });
+  res.json({ success: true });
+}));
+
+app.get('/api/audit/suspicious', rbacManager.requireAdmin, asyncHandler(async (req, res) => {
+  const rows = await db.all('SELECT * FROM suspicious_actions ORDER BY created_at DESC LIMIT 100');
+  res.json({ actions: rows });
+}));
+// --- API: Двухфакторная аутентификация для админов ---
+const speakeasy = require('speakeasy');
+const qrcode = require('qrcode');
+
+// Генерация секрета и QR для 2FA
+app.get('/api/auth/2fa/setup', rbacManager.requireAdmin, asyncHandler(async (req, res) => {
+  const secret = speakeasy.generateSecret({ name: 'StreamAI Admin' });
+  const qr = await qrcode.toDataURL(secret.otpauth_url);
+  // Сохранить secret для пользователя (пример: req.user.id)
+  // await db.run('UPDATE users SET twofa_secret=? WHERE id=?', [secret.base32, req.user.id]);
+  res.json({ secret: secret.base32, qr });
+}));
+
+// Проверка 2FA-кода
+app.post('/api/auth/2fa/verify', rbacManager.requireAdmin, asyncHandler(async (req, res) => {
+  const { token } = req.body;
+  // Получить secret пользователя (пример: req.user.id)
+  // const row = await db.get('SELECT twofa_secret FROM users WHERE id=?', [req.user.id]);
+  // const secret = row?.twofa_secret;
+  const secret = 'JBSWY3DPEHPK3PXP'; // пример, заменить на реальный
+  const verified = speakeasy.totp.verify({ secret, encoding: 'base32', token });
+  res.json({ success: verified });
+}));
+// --- API: FAQ для поддержки пользователей ---
+app.get('/api/support/faq', asyncHandler(async (req, res) => {
+  // Пример: статический FAQ
+  const faq = [
+    { q: 'Как добавить новый шаблон уведомления?', a: 'Перейдите в раздел шаблонов и используйте кнопку "Добавить".' },
+    { q: 'Как настроить интеграцию с Telegram?', a: 'В разделе интеграций выберите Telegram и следуйте инструкции.' },
+    { q: 'Как получить BI-отчёты?', a: 'BI-отчёты доступны в соответствующем разделе dashboard.' }
+  ];
+  res.json({ faq });
+}));
+
+// --- API: Обратная связь от пользователя ---
+app.post('/api/support/feedback', asyncHandler(async (req, res) => {
+  const { text } = req.body;
+  // Пример: логировать отзыв, можно добавить запись в БД или отправку на email
+  if (!text || typeof text !== 'string') return res.json({ success: false });
+  console.log('Feedback:', text);
+  res.json({ success: true });
+}));
+// --- API: BI-отчёты с фильтрами ---
+app.get('/api/bi/reports', rbacManager.requirePermission(PERMISSIONS.VIEW_ANALYTICS), asyncHandler(async (req, res) => {
+  const { channel, segment } = req.query;
+  // Пример: фильтрация отчётов
+  let reports = [
+    { channel: 'Email', segment: 'VIP', stats: 'Отклик 18%', date: '2025-09-19' },
+    { channel: 'Telegram', segment: 'New Users', stats: 'Отклик 12%', date: '2025-09-18' },
+    { channel: 'Discord', segment: 'Inactive', stats: 'Отклик 7%', date: '2025-09-17' },
+    { channel: 'Push', segment: 'VIP', stats: 'Отклик 15%', date: '2025-09-16' }
+  ];
+  if (channel) reports = reports.filter(r => r.channel === channel);
+  if (segment) reports = reports.filter(r => r.segment === segment);
+  res.json({ reports });
+}));
+
+// --- API: Экспорт BI-отчётов ---
+app.get('/api/bi/export', rbacManager.requirePermission(PERMISSIONS.EXPORT_DATA), asyncHandler(async (req, res) => {
+  const { channel, segment } = req.query;
+  let reports = [
+    { channel: 'Email', segment: 'VIP', stats: 'Отклик 18%', date: '2025-09-19' },
+    { channel: 'Telegram', segment: 'New Users', stats: 'Отклик 12%', date: '2025-09-18' },
+    { channel: 'Discord', segment: 'Inactive', stats: 'Отклик 7%', date: '2025-09-17' },
+    { channel: 'Push', segment: 'VIP', stats: 'Отклик 15%', date: '2025-09-16' }
+  ];
+  if (channel) reports = reports.filter(r => r.channel === channel);
+  if (segment) reports = reports.filter(r => r.segment === segment);
+  const json = JSON.stringify(reports, null, 2);
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', 'attachment; filename="bi_reports.json"');
+  res.send(json);
+}));
+// --- API: Получение A/B отчётов для рассылок ---
+app.get('/api/notifications/ab-reports', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  // Пример: отчёты по сегментам
+  const reports = [
+    { segment: 'VIP', result: 'Вариант B показал лучший отклик (+15%)', date: '2025-09-19' },
+    { segment: 'New Users', result: 'Вариант A эффективнее (+8%)', date: '2025-09-18' },
+    { segment: 'Inactive', result: 'Оба варианта равны', date: '2025-09-17' }
+  ];
+  res.json({ reports });
+}));
+
+// --- API: AI-оптимизация рассылок ---
+app.get('/api/notifications/ai-optimize', rbacManager.requirePermission(PERMISSIONS.MANAGE_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  // Пример: рекомендация по оптимизации
+  res.json({ success: true, recommendation: 'Рекомендуется использовать вариант B для сегмента VIP и увеличить частоту рассылок для новых пользователей.' });
+}));
+// --- API: Экспорт данных для CRM/ERP ---
+app.get('/api/integration/export', rbacManager.requirePermission(PERMISSIONS.EXPORT_DATA), asyncHandler(async (req, res) => {
+  // Пример: экспортировать все шаблоны и сегменты
+  const templates = await db.all('SELECT * FROM templates');
+  const segments = await db.all('SELECT * FROM segments');
+  const data = { templates, segments };
+  const json = JSON.stringify(data, null, 2);
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', 'attachment; filename="exported_data.json"');
+  res.send(json);
+}));
+
+// --- API: Импорт данных из CRM/ERP ---
+const multer = require('multer');
+const upload = multer();
+app.post('/api/integration/import', rbacManager.requirePermission(PERMISSIONS.IMPORT_DATA), upload.single('file'), asyncHandler(async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.json({ success: false, error: 'Нет файла' });
+    const data = JSON.parse(file.buffer.toString());
+    // Импортировать шаблоны
+    if (Array.isArray(data.templates)) {
+      for (const tpl of data.templates) {
+        await db.run('INSERT OR REPLACE INTO templates (id, name, content, order_index) VALUES (?, ?, ?, ?)', [tpl.id, tpl.name, tpl.content, tpl.order_index]);
+      }
+    }
+    // Импортировать сегменты
+    if (Array.isArray(data.segments)) {
+      for (const seg of data.segments) {
+        await db.run('INSERT OR REPLACE INTO segments (id, name, order_index) VALUES (?, ?, ?)', [seg.id, seg.name, seg.order_index]);
+      }
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+}));
+// --- API: Получение уведомлений о событиях и ошибках ---
+app.get('/api/notifications/events', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  // Пример: события и ошибки
+  const events = [
+    { type: 'Email', text: 'Успешно отправлено 120 писем', created_at: '2025-09-20 10:12' },
+    { type: 'Telegram', text: 'Ошибка доставки сообщения', created_at: '2025-09-20 10:15' },
+    { type: 'Push', text: 'Push-уведомление отправлено 80 пользователям', created_at: '2025-09-20 10:18' },
+    { type: 'Discord', text: 'Ошибка авторизации бота', created_at: '2025-09-20 10:20' }
+  ];
+  res.json({ events });
+}));
+// --- API: Получение AI-рекомендаций (GET для dashboard) ---
+app.get('/api/notifications/ai-recommend', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  // Пример: автоматические прогнозы, выявление аномалий, рекомендации
+  const recommendations = [
+    { type: 'Прогноз', text: 'Ожидается рост отклика в сегменте VIP на 12%.' },
+    { type: 'Аномалия', text: 'Обнаружено снижение активности в канале Telegram.' },
+    { type: 'Оптимизация', text: 'Рекомендуется увеличить частоту рассылок для новых пользователей.' },
+    { type: 'Рекомендация', text: 'Используйте A/B тестирование для Push-уведомлений.' }
+  ];
+  res.json({ recommendations });
+}));
+// --- API: Корреляции для тепловой карты ---
+app.get('/api/notifications/stats/correlations', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  // Пример: вычислить корреляции между каналами и сегментами
+  // matrix: двумерный массив корреляций, labels: названия каналов/сегментов
+  const labels = ['Email', 'Telegram', 'Discord', 'Push'];
+  const matrix = [
+    [1, 0.6, 0.3, 0.2],
+    [0.6, 1, 0.5, 0.4],
+    [0.3, 0.5, 1, 0.7],
+    [0.2, 0.4, 0.7, 1]
+  ];
+  res.json({ labels, matrix });
+}));
+
+// --- API: Граф связей каналов и сегментов ---
+app.get('/api/notifications/stats/network', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  // Пример: nodes — каналы и сегменты, edges — связи между ними
+  const nodes = [
+    { id: 1, label: 'Email', group: 'channel' },
+    { id: 2, label: 'Telegram', group: 'channel' },
+    { id: 3, label: 'Discord', group: 'channel' },
+    { id: 4, label: 'Push', group: 'channel' },
+    { id: 101, label: 'VIP', group: 'segment' },
+    { id: 102, label: 'New Users', group: 'segment' },
+    { id: 103, label: 'Inactive', group: 'segment' }
+  ];
+  const edges = [
+    { from: 1, to: 101 },
+    { from: 2, to: 102 },
+    { from: 3, to: 103 },
+    { from: 4, to: 101 },
+    { from: 2, to: 101 },
+    { from: 3, to: 102 }
+  ];
+  res.json({ nodes, edges });
+}));
+// --- API: Получение списка сегментов для drag-and-drop редактора ---
+app.get('/api/notifications/segments', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const rows = await db.all('SELECT id, name FROM segments ORDER BY order_index ASC');
+  res.json(rows);
+}));
+
+// --- API: Сохранение порядка шаблонов и сегментов после drag-and-drop ---
+app.post('/api/notifications/templates/reorder', rbacManager.requirePermission(PERMISSIONS.MANAGE_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { templateOrder, segmentOrder } = req.body;
+  if (Array.isArray(templateOrder)) {
+    for (let i = 0; i < templateOrder.length; i++) {
+      await db.run('UPDATE templates SET order_index = ? WHERE id = ?', [i, templateOrder[i]]);
+    }
+  }
+  if (Array.isArray(segmentOrder)) {
+    for (let i = 0; i < segmentOrder.length; i++) {
+      await db.run('UPDATE segments SET order_index = ? WHERE id = ?', [i, segmentOrder[i]]);
+    }
+  }
+  res.json({ success: true });
+}));
+// --- API: аудит действий пользователей ---
+app.get('/api/audit/history', rbacManager.requirePermission(PERMISSIONS.VIEW_SYSTEM), asyncHandler(async (req, res) => {
+  // Пример: получить историю аудита из БД
+  const rows = await require('./db').query('SELECT user_id, action, details, created_at FROM audit_log ORDER BY created_at DESC LIMIT 100');
+  res.json({ history: rows });
+}));
+// --- API: AI-прогнозы и рекомендации по рассылкам ---
+app.post('/api/notifications/ai-recommend', rbacManager.requirePermission(PERMISSIONS.VIEW_NOTIFICATIONS), asyncHandler(async (req, res) => {
+  const { segment, channel, template, stats } = req.body;
+  // Пример: вызов AI-модели (OpenAI, локально, etc)
+  // Здесь можно использовать ML/AI для прогноза и рекомендаций
+  // Для примера — простая логика
+  let recommendation = 'Рекомендуется использовать канал с наибольшей конверсией.';
+  let predictedConversion = Math.random() * 100;
+  // TODO: интеграция с реальной AI-моделью
+  if (stats && stats.length) {
+    const best = stats.reduce((a, b) => (a.conversion > b.conversion ? a : b));
+    recommendation = `Лучший канал: ${best.channel}, ожидаемая конверсия: ${best.conversion}%`;
+    predictedConversion = best.conversion;
+  }
+  res.json({ recommendation, predictedConversion });
+}));
+// --- API: получить текущего пользователя и его роль/права ---
+app.get('/api/rbac/users/me', asyncHandler(async (req, res) => {
+  // req.user должен быть установлен после аутентификации
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const user = await require('./db').query('SELECT id, username FROM users WHERE id = ?', [userId]);
+  if (!user[0]) return res.status(404).json({ error: 'User not found' });
+  res.json({ user: {
+    id: user[0].id,
+    username: user[0].username,
+    role: rbacManager.getUserRole(user[0].id),
+    permissions: rbacManager.getUserPermissions(user[0].id)
+  }});
+}));
+// --- API для управления ролями и правами пользователей (RBAC) ---
+const { rbacManager, ROLES, PERMISSIONS } = require('./rbac');
+
+// Получить список всех пользователей и их ролей
+app.get('/api/rbac/users', rbacManager.requirePermission(PERMISSIONS.MANAGE_USERS), asyncHandler(async (req, res) => {
+  // Пример: получить из БД
+  const users = await require('./db').query('SELECT id, username FROM users');
+  const result = users.map(u => ({
+    id: u.id,
+    username: u.username,
+    role: rbacManager.getUserRole(u.id),
+    permissions: rbacManager.getUserPermissions(u.id)
+  }));
+  res.json({ users: result });
+}));
+
+// Назначить роль пользователю
+app.post('/api/rbac/assign-role', rbacManager.requirePermission(PERMISSIONS.MANAGE_USERS), asyncHandler(async (req, res) => {
+  const { userId, role } = req.body;
+  rbacManager.assignRole(userId, role);
+  res.json({ ok: true });
+}));
+
+// Добавить разрешение пользователю
+app.post('/api/rbac/add-permission', rbacManager.requirePermission(PERMISSIONS.MANAGE_USERS), asyncHandler(async (req, res) => {
+  const { userId, permission } = req.body;
+  rbacManager.addUserPermission(userId, permission);
+  res.json({ ok: true });
+}));
+
+// Удалить разрешение у пользователя
+app.post('/api/rbac/remove-permission', rbacManager.requirePermission(PERMISSIONS.MANAGE_USERS), asyncHandler(async (req, res) => {
+  const { userId, permission } = req.body;
+  rbacManager.removeUserPermission(userId, permission);
+  res.json({ ok: true });
+}));
+
+// Получить список всех ролей и разрешений
+app.get('/api/rbac/roles', rbacManager.requirePermission(PERMISSIONS.MANAGE_USERS), asyncHandler(async (req, res) => {
+  res.json({ roles: ROLES, permissions: PERMISSIONS });
+}));
+// ...existing code...
+const http = require('http');
+const { initWebSocket, broadcastAnalyticsUpdate } = require('./ws-server');
+// ...existing code...
+// ...existing code...
+const server = http.createServer(app);
+initWebSocket(server);
+server.listen(PORT, () => {
+  logger.logWithContext('info', `Server started on port ${PORT}`, {
+    event: 'server_start'
+  });
+});
 // --- API для A/B тестирования уведомлений ---
 app.post('/api/notifications/abtest/start', rbacManager.requirePermission(PERMISSIONS.MANAGE_NOTIFICATIONS), asyncHandler(async (req, res) => {
   const { testName, variants, userSegment } = req.body;
@@ -650,7 +1339,7 @@ process.on('uncaughtException', handleUncaughtException);
 process.on('unhandledRejection', handleUnhandledRejection);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// ...existing code...
 
 // Базовая защита заголовков
 app.use(helmet());
@@ -778,77 +1467,7 @@ app.get('/metrics',
   })
 );
 
-// Создаем HTTP сервер
-const server = http.createServer(app);
-
-// Создаем WebSocket сервер
-const wss = new WebSocket.Server({ server });
-
-// Обработка WebSocket подключений
-wss.on('connection', async (ws, req) => {
-  try {
-    // Начинаем отслеживать метрики WebSocket соединения
-    metrics.trackWebSocketConnection(ws);
-
-    // Здесь должна быть аутентификация WebSocket подключения
-    // Для примера используем заголовок x-auth-token
-    const token = req.headers['x-auth-token'];
-    if (!token) {
-      ws.close(4001, 'Authentication required');
-      return;
-    }
-
-    // Здесь должна быть верификация токена и получение userId
-    // Для примера просто используем token как userId
-    const userId = token;
-
-    // Регистрируем клиента для получения уведомлений
-    notificationManager.registerClient(userId, ws);
-
-    // Обработка сообщений от клиента
-    ws.on('message', async (data) => {
-      try {
-        const message = JSON.parse(data);
-
-        switch (message.type) {
-          case 'mark_read':
-            if (message.notificationId) {
-              notificationManager.markAsRead(userId, message.notificationId);
-            }
-            break;
-          // Можно добавить другие типы сообщений
-        }
-      } catch (error) {
-        logger.logError(error, {
-          event: 'websocket_message_processing_error',
-          userId
-        });
-      }
-    });
-
-    // Обработка ошибок WebSocket
-    ws.on('error', (error) => {
-      handleWebSocketError(error, ws);
-    });
-
-  } catch (error) {
-    logger.logError(error, {
-      event: 'websocket_connection_error'
-    });
-    ws.close(4000, 'Internal server error');
-  }
-});
-
-// Периодическая проверка соединений
-setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
-      return ws.terminate();
-    }
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000); // Проверка каждые 30 секунд
+// ...existing code...
 
 // Запуск сервера
 server.listen(PORT, () => {
