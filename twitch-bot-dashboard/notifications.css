@@ -1,0 +1,207 @@
+/* Стили для уведомлений */
+.notifications-card {
+  max-height: 400px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.notifications-list {
+  flex: 1;
+}
+
+/* Стили для компонентов управления уведомлениями */
+.notifications-section {
+  padding: 20px;
+}
+
+.notification-templates {
+  margin-bottom: 30px;
+}
+
+.template-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.template-card {
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 6px;
+  padding: 15px;
+  position: relative;
+  transition: transform 0.2s ease-in-out;
+}
+
+.template-card:hover {
+  transform: translateY(-2px);
+}
+
+.template-card h3 {
+  margin: 0 0 10px 0;
+  color: var(--vscode-editor-foreground);
+}
+
+.template-parameters {
+  margin: 10px 0;
+  padding: 10px;
+  background: var(--vscode-textBlockQuote-background);
+  border-radius: 4px;
+}
+
+.parameter-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+  font-size: 0.9em;
+}
+
+.template-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.template-form {
+  max-width: 600px;
+  margin: 20px auto;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--vscode-editor-foreground);
+}
+
+.form-control {
+  width: 100%;
+  padding: 8px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+}
+
+.parameter-list {
+  margin: 15px 0;
+}
+
+.parameter-form {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.btn-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.important-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--vscode-statusBarItem-warningBackground);
+  color: var(--vscode-statusBarItem-warningForeground);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.8em;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.template-list {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@media (max-width: 768px) {
+  .template-list {
+    grid-template-columns: 1fr;
+  }
+
+  .parameter-form {
+    grid-template-columns: 1fr;
+  }
+}
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.notification {
+  background: var(--notification-unread);
+  border: 1px solid var(--notification-border);
+  border-radius: 8px;
+  padding: var(--space-3);
+  transition: all var(--transition-normal);
+  position: relative;
+  animation: notification-appear var(--transition-normal);
+}
+
+.notification.read {
+  background: var(--notification-read);
+  border-color: transparent;
+}
+
+.notification-title {
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+  color: var(--color-accent);
+}
+
+.notification-message {
+  margin-bottom: var(--space-2);
+  color: var(--color-text-primary);
+}
+
+.notification-time {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.notification button {
+  background: var(--color-accent);
+  color: var(--color-bg-primary);
+  border: none;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: all var(--transition-fast);
+}
+
+.notification button:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.notification.read button {
+  display: none;
+}
+
+@keyframes notification-appear {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

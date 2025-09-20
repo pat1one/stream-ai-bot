@@ -1,13 +1,87 @@
-(() => {
-  const els = {
-    wsUrl: document.getElementById('wsUrl'),
+// Импорты наверх
+import NotificationClient, { renderNotificationStatsSection } from './notifications.js';
+import { t } from './i18n.js';
+import config from './dashboard-config.js';
+
+// ... (DOM utils and els definition remain unchanged)
+
+
+// RBAC UI: назначение роли пользователю (feature-flag)
+if (config.enableRbac && els.rbacSetRoleBtn) {
+  els.rbacSetRoleBtn.addEventListener('click', async () => {
+    const userId = (els.rbacUserId.value || '').trim();
+    const role = els.rbacRole.value;
+    if (!userId || !role) {
+      els.rbacStatus.textContent = 'Укажите ID пользователя и роль';
+      return;
+    }
+    try {
+      const token = localStorage.getItem('jwt') || els.authToken.value || '';
+      const headers = { 'Content-Type': 'application/json' };
+      if (token && token.startsWith('ey')) headers['Authorization'] = 'Bearer ' + token;
+      const res = await fetch(`${config.apiBaseUrl}/rbac/role/${encodeURIComponent(userId)}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ role })
+      });
+      if (res.ok) {
+        els.rbacStatus.textContent = 'Роль успешно назначена';
+      } else {
+        const txt = await res.text().catch(() => '<no-body>');
+        els.rbacStatus.textContent = 'Ошибка: ' + txt;
+      }
+    } catch (e) {
+      els.rbacStatus.textContent = 'Ошибка: ' + (e && e.message);
+    }
+  });
+}
+
+// OAuth/SSO: показать кнопки если включено в конфиге
+const oauthButtons = document.getElementById('oauthButtons');
+if (oauthButtons) {
+  if (config.enableOAuth) {
+    oauthButtons.style.display = 'flex';
+  } else {
+    oauthButtons.style.display = 'none';
+  }
+}
+  function renderLogs() {
+    let list = logLines.slice();
+    const filter = (els.logFilter && els.logFilter.value) ? els.logFilter.value.toLowerCase() : '';
+    if (filter) list = list.filter(l => l.toLowerCase().includes(filter));
+    if (els.logSort && els.logSort.value === 'asc') list = list.slice().reverse();
+    els.logs.innerHTML = '';
+    for (const line of list) {
+      const div = document.createElement('div');
+      div.textContent = line;
+      els.logs.appendChild(div);
+    }
+    els.logs.scrollTop = els.logs.scrollHeight;
+  }
+
+  if (els.notifFilter) els.notifFilter.addEventListener('input', renderNotifications);
+  if (els.notifSort) els.notifSort.addEventListener('change', renderNotifications);
+  if (els.logFilter) els.logFilter.addEventListener('input', renderLogs);
+  if (els.logSort) els.logSort.addEventListener('change', renderLogs);
+import NotificationClient from './notifications.js';
+import { t } from './i18n.js';
+
+// Утилиты для работы с DOM
+const dom = {
+  get: id => document.getElementById(id),
+  create: tag => document.createElement(tag),
+  append: (parent, child) => parent.appendChild(child)
+};
+
+const els = {
+    wsUrl: dom.get('wsUrl'),
     authToken: document.getElementById('authToken'),
     currentUserDisplay: document.getElementById('currentUser'),
     loginUser: document.getElementById('loginUser'),
     loginPass: document.getElementById('loginPass'),
     loginBtn: document.getElementById('loginBtn'),
     registerBtn: document.getElementById('registerBtn'),
-  copyTokenBtn: document.getElementById('copyTokenBtn'),
+    copyTokenBtn: document.getElementById('copyTokenBtn'),
     connectBtn: document.getElementById('connectBtn'),
     disconnectBtn: document.getElementById('disconnectBtn'),
     status: document.getElementById('status'),
@@ -20,14 +94,62 @@
     addCmdBtn: document.getElementById('addCmdBtn'),
     customCmds: document.getElementById('customCmds'),
     logs: document.getElementById('logs'),
-  lastResponse: document.getElementById('lastResponse'),
+    lastResponse: document.getElementById('lastResponse'),
     clearLogsBtn: document.getElementById('clearLogsBtn'),
     downloadLogsBtn: document.getElementById('downloadLogsBtn'),
     autoReconnect: document.getElementById('autoReconnect'),
-    persistLogs: document.getElementById('persistLogs')
-  };
+    persistLogs: document.getElementById('persistLogs'),
+
+  notifications: document.getElementById('notifications'),
+  themeToggleBtn: document.getElementById('themeToggleBtn'),
+  notifFilter: document.getElementById('notifFilter'),
+  notifSort: document.getElementById('notifSort'),
+  logFilter: document.getElementById('logFilter'),
+  logSort: document.getElementById('logSort'),
+  langSelect: document.getElementById('langSelect'),
+  rbacUserId: document.getElementById('rbacUserId'),
+  rbacRole: document.getElementById('rbacRole'),
+  rbacSetRoleBtn: document.getElementById('rbacSetRoleBtn'),
+  rbacStatus: document.getElementById('rbacStatus')
+};
+
+let lang = localStorage.getItem('lang') || 'ru';
+if (els.langSelect) {
+  els.langSelect.value = lang;
+  els.langSelect.addEventListener('change', () => {
+    lang = els.langSelect.value;
+    localStorage.setItem('lang', lang);
+    applyTranslations();
+  });
+}
+function applyTranslations() {
+  document.title = 'Stream AI Bot — ' + t('Dashboard', lang);
+  if (els.themeToggleBtn) els.themeToggleBtn.title = t('Theme', lang);
+  if (els.loginBtn) els.loginBtn.textContent = t('Login', lang);
+  if (els.registerBtn) els.registerBtn.textContent = t('Register', lang);
+  if (els.clearLogsBtn) els.clearLogsBtn.textContent = t('Clear logs', lang);
+  if (els.downloadLogsBtn) els.downloadLogsBtn.textContent = t('Download logs', lang);
+  // ...добавьте остальные элементы по необходимости
+}
+applyTranslations();
 
   let currentUser = null;
+  let notificationsCache = [];
+
+  // --- Theme toggle ---
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    if (els.themeToggleBtn) els.themeToggleBtn.textContent = theme === 'dark' ? '🌙' : '☀️';
+  }
+  if (els.themeToggleBtn) {
+    els.themeToggleBtn.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      setTheme(current === 'dark' ? 'light' : 'dark');
+    });
+    // Init theme on load
+    setTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+  }
 
   async function fetchCurrentUser(){
     const token = localStorage.getItem('jwt') || els.authToken.value || '';
@@ -39,31 +161,92 @@
     }catch(e){ currentUser = null; updateUserUI(null); }
   }
 
-  function updateUserUI(user){
-    if(user){ els.currentUserDisplay.textContent = `${user.username} (${user.role})`; }
-    else { els.currentUserDisplay.textContent = 'Not signed in'; }
-    // enable/disable add command
-    els.addCmdBtn.disabled = !(user && user.role === 'admin');
+  function renderNotifications() {
+    let list = notificationsCache.slice();
+    const filter = (els.notifFilter && els.notifFilter.value) ? els.notifFilter.value.toLowerCase() : '';
+    if (filter) list = list.filter(n => (n.title||'').toLowerCase().includes(filter) || (n.message||'').toLowerCase().includes(filter));
+    if (els.notifSort && els.notifSort.value === 'asc') list.sort((a,b)=>a.timestamp-b.timestamp); else list.sort((a,b)=>b.timestamp-a.timestamp);
+    els.notifications.innerHTML = '';
+    for (const notification of list) {
+      const notificationEl = document.createElement('div');
+      notificationEl.className = 'notification' + (notification.read ? ' read' : '');
+      notificationEl.id = `notification-${notification.id}`;
+      const title = document.createElement('div');
+      title.className = 'notification-title';
+      title.textContent = notification.title || 'New Notification';
+      const message = document.createElement('div');
+      message.className = 'notification-message';
+      message.textContent = notification.message;
+      const time = document.createElement('div');
+      time.className = 'notification-time';
+      time.textContent = new Date(notification.timestamp).toLocaleString();
+      const markRead = document.createElement('button');
+      markRead.textContent = 'Mark as Read';
+      markRead.onclick = () => { notificationClient.markAsRead(notification.id); };
+      notificationEl.appendChild(title);
+      notificationEl.appendChild(message);
+      notificationEl.appendChild(time);
+      notificationEl.appendChild(markRead);
+      els.notifications.appendChild(notificationEl);
+    }
   }
 
-  let ws = null;
-  let reconnectTimeout = null;
-
-  const logLines = [];
+  function initNotifications() {
+    if (!currentUser) return;
+    const wsUrl = els.wsUrl.value.replace('ws://', 'wss://');
+    const token = localStorage.getItem('jwt') || els.authToken.value;
+    notificationClient = new NotificationClient(wsUrl, token);
+    notificationClient.onNotification = (notification) => {
+      notificationsCache = notificationsCache.filter(n => n.id !== notification.id);
+      notificationsCache.push(notification);
+      renderNotifications();
+      addLog(`Notification received: ${notification.title}`);
+    };
+    notificationClient.onNotificationRead = (notificationId) => {
+      notificationsCache = notificationsCache.map(n => n.id === notificationId ? { ...n, read: true } : n);
+      renderNotifications();
+      addLog(`Notification ${notificationId} marked as read`);
+    };
+    notificationClient.connect();
+  }
+  
+  // Очистка уведомлений
+  function cleanupNotifications() {
+    if (notificationClient) {
+      notificationClient.disconnect();
+      notificationClient = null;
+    }
+    notificationsCache = [];
+    renderNotifications();
+  }
+  function renderLogs() {
+    let list = logLines.slice();
+    const filter = (els.logFilter && els.logFilter.value) ? els.logFilter.value.toLowerCase() : '';
+    if (filter) list = list.filter(l => l.toLowerCase().includes(filter));
+    if (els.logSort && els.logSort.value === 'asc') list = list.slice().reverse();
+    els.logs.innerHTML = '';
+    for (const line of list) {
+      const div = document.createElement('div');
+      div.textContent = line;
+      els.logs.appendChild(div);
+    }
+    els.logs.scrollTop = els.logs.scrollHeight;
+  }
   function addLog(line){
     const time = new Date().toLocaleTimeString();
     const text = `[${time}] ${line}`;
     logLines.push(text);
     if(els.persistLogs.checked) localStorage.setItem('botLogs', JSON.stringify(logLines));
-    const div = document.createElement('div'); div.textContent = text; els.logs.appendChild(div); els.logs.scrollTop = els.logs.scrollHeight;
+    renderLogs();
   }
 
   function loadLogs(){
     const saved = localStorage.getItem('botLogs');
     if(saved){
-      try{ const arr = JSON.parse(saved); arr.forEach(l => { const d = document.createElement('div'); d.textContent = l; els.logs.appendChild(d); logLines.push(l); }); }
+      try{ const arr = JSON.parse(saved); arr.forEach(l => { logLines.push(l); }); }
       catch(e){ console.warn('failed load logs', e); }
     }
+    renderLogs();
   }
 
   const customCommands = {};
@@ -236,6 +419,10 @@
   els.clearLogsBtn.addEventListener('click', clearLogs);
   els.downloadLogsBtn.addEventListener('click', downloadLogs);
   els.persistLogs.addEventListener('change', () => { if(!els.persistLogs.checked) localStorage.removeItem('botLogs'); });
+  if (els.notifFilter) els.notifFilter.addEventListener('input', renderNotifications);
+  if (els.notifSort) els.notifSort.addEventListener('change', renderNotifications);
+  if (els.logFilter) els.logFilter.addEventListener('input', renderLogs);
+  if (els.logSort) els.logSort.addEventListener('change', renderLogs);
 
   // enable enter to send
   els.messageInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') sendMessage(); });
@@ -250,6 +437,10 @@
     if(els.persistLogs.checked) loadLogs();
     setStatus(false);
     fetchCurrentUser();
+    // Инициализация секции статистики уведомлений
+    if (typeof renderNotificationStatsSection === 'function') {
+      renderNotificationStatsSection();
+    }
   });
   window.addEventListener('beforeunload', () => {
     localStorage.setItem('wsUrl', els.wsUrl.value);
@@ -258,4 +449,66 @@
     localStorage.setItem('authToken', els.authToken.value || '');
   });
 
-})();
+
+// --- Monitoring: metrics and logs ---
+window.addEventListener('DOMContentLoaded', () => {
+  const metricsChartEl = document.getElementById('metricsChart');
+  const refreshMetricsBtn = document.getElementById('refreshMetricsBtn');
+  const monitoringLogsEl = document.getElementById('monitoringLogs');
+  const refreshLogsBtn = document.getElementById('refreshLogsBtn');
+  let metricsChart = null;
+
+  async function fetchMetrics() {
+    try {
+      const res = await fetch('/metrics');
+      const text = await res.text();
+      // Парсим Prometheus-метрики
+      const data = {};
+      text.split('\n').forEach(line => {
+        if (line.startsWith('#') || !line.trim()) return;
+        const [key, value] = line.split(/\s+/);
+        data[key] = parseFloat(value);
+      });
+      // Визуализируем: память, CPU, соединения
+      const labels = ['heapUsed', 'rss', 'loadAvg1m', 'wsConn'];
+      const values = [
+        data['process_memory_heapUsed_mb'],
+        data['process_memory_rss_mb'],
+        data['process_cpu_loadAvg1m'] || data['process_cpu_loadAvg1m'],
+        data['websocket_connections_current']
+      ];
+      if (!metricsChart) {
+        metricsChart = new Chart(metricsChartEl.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: ['Heap Used (MB)', 'RSS (MB)', 'CPU Load 1m', 'WS Connections'],
+            datasets: [{ label: 'Metrics', data: values, backgroundColor: ['#4bc0c0','#36a2eb','#ffcd56','#ff6384'] }]
+          },
+          options: { responsive: false, plugins: { legend: { display: false } } }
+        });
+      } else {
+        metricsChart.data.datasets[0].data = values;
+        metricsChart.update();
+      }
+    } catch (e) {
+      if (metricsChartEl) metricsChartEl.parentNode.innerHTML = '<div style="color:red">Ошибка загрузки метрик</div>';
+    }
+  }
+
+  async function fetchLogs() {
+    try {
+      const res = await fetch('/api/logs?limit=50');
+      const { logs } = await res.json();
+      monitoringLogsEl.innerHTML = logs.map(l => `<div>${l}</div>`).join('');
+    } catch (e) {
+      monitoringLogsEl.innerHTML = '<div style="color:red">Ошибка загрузки логов</div>';
+    }
+  }
+
+  if (refreshMetricsBtn) refreshMetricsBtn.addEventListener('click', fetchMetrics);
+  if (refreshLogsBtn) refreshLogsBtn.addEventListener('click', fetchLogs);
+  // Автозагрузка при открытии dashboard
+  if (metricsChartEl) fetchMetrics();
+  if (monitoringLogsEl) fetchLogs();
+});
+

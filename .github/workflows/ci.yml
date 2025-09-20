@@ -34,3 +34,26 @@ jobs:
           node example-server.js &
           sleep 1
           WS_URL=ws://localhost:8080 node test-client.js
+
+  lint-and-unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm install
+      - name: Lint (eslint)
+        run: |
+          npx eslint . || echo 'Lint errors (not blocking)'
+      - name: Run unit tests with coverage
+        run: npm test -- --coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: true
+          verbose: true

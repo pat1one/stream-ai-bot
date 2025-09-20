@@ -1,5 +1,12 @@
 # Twitch Bot Dashboard
 
+## Визуализация метрик (Chart.js)
+Для отображения графиков метрик в dashboard используется Chart.js. Подключите библиотеку через CDN, добавив перед `<script src="app.js"></script>` в `index.html`:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+```
+
 Лёгкая статическая панель для управления ботом через WebSocket.
 
 Как использовать
