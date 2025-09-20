@@ -1,3 +1,45 @@
+// --- Вложения и файлы в уведомлениях ---
+const path = require('path');
+const fs = require('fs');
+const uploadDir = path.join(__dirname, 'attachments');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+
+// API: загрузить вложение
+app.post('/api/notifications/attachment', (req, res) => {
+  const { filename, filedata, notificationId } = req.body;
+  if (!filename || !filedata || !notificationId) return res.status(400).json({ error: 'filename, filedata, notificationId обязательны' });
+  try {
+    const filePath = path.join(uploadDir, filename);
+    fs.writeFileSync(filePath, Buffer.from(filedata, 'base64'));
+    // Сохранить ссылку на вложение в уведомлении
+    db.run('UPDATE notifications SET attachment = ? WHERE id = ?', [filePath, notificationId]);
+    res.json({ success: true, url: `/api/notifications/attachment/${filename}` });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка загрузки файла' });
+  }
+});
+
+// API: получить вложение
+app.get('/api/notifications/attachment/:filename', (req, res) => {
+  const filePath = path.join(uploadDir, req.params.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).send('Файл не найден');
+  res.sendFile(filePath);
+});
+// --- Рендер шаблона с переменными ---
+function renderTemplate(content, variables) {
+  return content.replace(/\{(\w+)\}/g, (_, key) => variables[key] || '');
+}
+
+app.post('/api/notification-templates/render', (req, res) => {
+  const { content, variables } = req.body;
+  if (!content || typeof variables !== 'object') return res.status(400).json({ error: 'content и variables обязательны' });
+  try {
+    const rendered = renderTemplate(content, variables);
+    res.json({ rendered });
+  } catch (e) {
+    res.status(500).json({ error: 'Ошибка рендера шаблона' });
+  }
+});
 // --- Webhook для событий аудита ---
 const fetch = require('node-fetch');
 let auditWebhookUrl = '';
