@@ -201,22 +201,48 @@
 
   // login / register
   els.loginBtn.addEventListener('click', async ()=>{
-    const user = (els.loginUser.value||'').trim(); const pass = els.loginPass.value||''; if(!user || !pass) return;
-    try{
-      const r = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: user, password: pass}) });
-  if(r.ok){ const data = await r.json(); if(data && data.token){ localStorage.setItem('jwt', data.token); els.authToken.value = data.token; addLog('Login successful'); await loadCustoms(); await fetchCurrentUser(); } else addLog('login: no token'); }
-      else { const txt = await r.text().catch(()=>'<no-body>'); addLog('login failed: '+txt); }
-    }catch(e){ addLog('login error: '+(e && e.message)); }
-  });
+      const user = (els.loginUser.value||'').trim(); const pass = els.loginPass.value||''; if(!user || !pass) return;
+      try{
+        const r = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: user, password: pass}) });
+        if(r.ok){
+          const data = await r.json();
+          if(data && data.token){
+            localStorage.setItem('jwt', data.token);
+            els.authToken.value = data.token;
+            if(data.refresh_token) {
+              localStorage.setItem('refresh_token', data.refresh_token);
+              addLog('Refresh token сохранён');
+            }
+            addLog('Login successful');
+            await loadCustoms();
+            await fetchCurrentUser();
+          } else addLog('login: no token');
+        }
+        else { const txt = await r.text().catch(()=>'<no-body>'); addLog('login failed: '+txt); }
+      }catch(e){ addLog('login error: '+(e && e.message)); }
+    });
 
   els.registerBtn.addEventListener('click', async ()=>{
-    const user = (els.loginUser.value||'').trim(); const pass = els.loginPass.value||''; if(!user || !pass) return;
-    try{
-      const r = await fetch('/api/register', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: user, password: pass}) });
-  if(r.ok){ const data = await r.json(); if(data && data.token){ localStorage.setItem('jwt', data.token); els.authToken.value = data.token; addLog('Registered and logged in'); await loadCustoms(); await fetchCurrentUser(); } else addLog('register: no token'); }
-      else { const txt = await r.text().catch(()=>'<no-body>'); addLog('register failed: '+txt); }
-    }catch(e){ addLog('register error: '+(e && e.message)); }
-  });
+      const user = (els.loginUser.value||'').trim(); const pass = els.loginPass.value||''; if(!user || !pass) return;
+      try{
+        const r = await fetch('/api/register', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: user, password: pass}) });
+        if(r.ok){
+          const data = await r.json();
+          if(data && data.token){
+            localStorage.setItem('jwt', data.token);
+            els.authToken.value = data.token;
+            if(data.refresh_token) {
+              localStorage.setItem('refresh_token', data.refresh_token);
+              addLog('Refresh token сохранён');
+            }
+            addLog('Registered and logged in');
+            await loadCustoms();
+            await fetchCurrentUser();
+          } else addLog('register: no token');
+        }
+        else { const txt = await r.text().catch(()=>'<no-body>'); addLog('register failed: '+txt); }
+      }catch(e){ addLog('register error: '+(e && e.message)); }
+    });
 
   els.copyTokenBtn.addEventListener('click', ()=>{
     try{ navigator.clipboard.writeText(els.authToken.value||''); addLog('Token copied to clipboard'); }catch(e){ addLog('Copy failed'); }
@@ -242,14 +268,94 @@
 
   // load saved UI state
   window.addEventListener('load', () => {
-  els.wsUrl.value = localStorage.getItem('wsUrl') || 'ws://localhost:3000';
+    els.wsUrl.value = localStorage.getItem('wsUrl') || 'ws://localhost:3000';
     els.autoReconnect.checked = localStorage.getItem('autoReconnect') === '1';
     els.persistLogs.checked = localStorage.getItem('persistLogs') === '1';
-    els.authToken.value = localStorage.getItem('authToken') || '';
-    loadCustoms();
+    els.authToken.value = localStorage.getItem('jwt') || localStorage.getItem('authToken') || '';
+
+    // Автовход: если есть токен, сразу авторизуем пользователя и подключаемся к WS
+    if(els.authToken.value) {
+      fetchCurrentUser().then(() => {
+        if(currentUser) {
+          loadCustoms();
+          connect(); // авто-подключение к WebSocket
+          addLog('Автовход выполнен: ' + currentUser.username);
+        } else {
+          addLog('Токен истёк или недействителен, требуется повторный вход');
+          els.currentUserDisplay.textContent = 'Требуется повторный вход';
+        }
+      });
+    }
     if(els.persistLogs.checked) loadLogs();
     setStatus(false);
-    fetchCurrentUser();
+  });
+
+  // Периодическая синхронизация сессии через /api/session
+  setInterval(async () => {
+    const token = localStorage.getItem('jwt') || localStorage.getItem('authToken') || '';
+    if(!token) return;
+    try {
+      const opts = token.startsWith('ey') ? { headers: { Authorization: 'Bearer '+token } } : {};
+      const r = await fetch('/api/session', opts);
+      if(r.ok) {
+        const u = await r.json();
+        if(!currentUser || currentUser.username !== u.username) {
+          currentUser = u;
+          updateUserUI(u);
+          addLog('Сессия синхронизирована: ' + u.username);
+        }
+      } else {
+        currentUser = null;
+        updateUserUI(null);
+        addLog('Сессия истекла, попытка автообновления токена...');
+        // Попытка автообновления токена через /api/refresh
+        const refreshToken = localStorage.getItem('refresh_token');
+        if(refreshToken) {
+          try {
+            const resp = await fetch('/api/refresh', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({refresh_token: refreshToken})
+            });
+            if(resp.ok) {
+              const data = await resp.json();
+              if(data.token) {
+                localStorage.setItem('jwt', data.token);
+                els.authToken.value = data.token;
+                if(data.refresh_token) {
+                  localStorage.setItem('refresh_token', data.refresh_token);
+                  addLog('Refresh token обновлён');
+                }
+                addLog('Токен успешно обновлён');
+                fetchCurrentUser();
+                loadCustoms();
+                return;
+              }
+            } else {
+              addLog('Не удалось обновить токен, требуется повторный вход');
+              els.currentUserDisplay.textContent = 'Требуется повторный вход';
+            }
+          } catch(e) {
+            addLog('Ошибка автообновления токена: ' + (e && e.message));
+          }
+        } else {
+          addLog('Нет refresh_token, требуется повторный вход');
+          els.currentUserDisplay.textContent = 'Требуется повторный вход';
+        }
+      }
+    } catch(e) {
+      addLog('Ошибка синхронизации сессии: ' + (e && e.message));
+    }
+  }, 300000); // каждые 5 минут
+
+  // Автообновление UI при смене токена
+  window.addEventListener('storage', (e) => {
+    if(e.key === 'jwt' || e.key === 'authToken') {
+      els.authToken.value = localStorage.getItem('jwt') || localStorage.getItem('authToken') || '';
+      fetchCurrentUser();
+      loadCustoms();
+      addLog('Токен обновлён, UI перезагружен');
+    }
   });
   window.addEventListener('beforeunload', () => {
     localStorage.setItem('wsUrl', els.wsUrl.value);
