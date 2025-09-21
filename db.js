@@ -18,11 +18,24 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT UNIQUE,
   password TEXT,
   role TEXT DEFAULT 'user'
+  , email TEXT
+  , refresh_token TEXT
+  , premium INTEGER DEFAULT 0
+  , last_login TEXT
+  , activity INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+ CREATE TABLE IF NOT EXISTS premium_features (
+   id INTEGER PRIMARY KEY AUTOINCREMENT,
+   user_id INTEGER,
+   feature TEXT,
+   enabled INTEGER DEFAULT 1,
+   created_at TEXT,
+   FOREIGN KEY(user_id) REFERENCES users(id)
+ );
 `);
 
 // Migrate existing JSON commands if present
