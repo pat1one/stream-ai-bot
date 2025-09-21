@@ -11,16 +11,26 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 // Настройки Twitch-бота (заменить на свои значения)
-const twitchConfig = {
-  options: { debug: true },
+let twitchConfig = {
+  options: { debug: true, logging: 'info' },
   connection: { reconnect: true },
   identity: {
-    username: process.env.TWITCH_BOT_USERNAME || 'your_bot_username',
-
-    password: process.env.TWITCH_OAUTH_TOKEN || 'oauth:your_oauth_token'
+    username: process.env.TWITCH_BOT_USERNAME || 'pattmsc_bot',
+    password: process.env.TWITCH_OAUTH_TOKEN || 'oauth:invalid_token'
   },
   channels: [ process.env.TWITCH_CHANNEL || 'your_channel' ]
 };
+
+// Автообновление OAuth-токена через twitch-auth.js
+const twitchAuth = require('./twitch-auth');
+twitchAuth.refreshAccessToken().then(token => {
+  if(token && token.startsWith('oauth:')) {
+    twitchConfig.identity.password = token;
+    console.log('OAuth-токен Twitch обновлён автоматически');
+  } else {
+    console.log('Не удалось обновить OAuth-токен Twitch');
+  }
+});
 
 // <-- Добавлена закрывающая фигурная скобка для Express/WebSocket блока
 // Загрузка каналов из БД
@@ -218,8 +228,8 @@ app.get('/api/moderation/logs', checkToken, requireRole('moderator'), (req, res)
   res.json({logs: getModerationLogs()});
 });
 // Twitch OAuth2 endpoints
-const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || 'your_client_id';
-const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || 'your_client_secret';
+const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || 'nmc2e44r8mfx9agmqi8p339tboq7e2';
+const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || 'szezmr7n2mo6xoh5v4qwdqowj0sjkx';
 const TWITCH_REDIRECT_URI = process.env.TWITCH_REDIRECT_URI || 'http://localhost:3000/api/auth/twitch/callback';
 
 app.get('/api/auth/twitch', (req, res) => {
@@ -778,3 +788,4 @@ wss.on('connection', (ws) => {
 server.listen(PORT, () => console.log(`Server running http://localhost:${PORT}`));
 // <-- Добавлена закрывающая фигурная скобка для Express/WebSocket блока
 }
+
