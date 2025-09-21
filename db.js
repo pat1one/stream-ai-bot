@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS settings (
    created_at TEXT,
    FOREIGN KEY(user_id) REFERENCES users(id)
  );
+CREATE TABLE IF NOT EXISTS managed_channels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL
+);
 `);
 
 // Migrate existing JSON commands if present
