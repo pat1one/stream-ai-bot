@@ -44,28 +44,29 @@ twitchAuth.refreshAccessToken().then(token => {
 });
 
 // <-- Добавлена закрывающая фигурная скобка для Express/WebSocket блока
-// Загрузка каналов из БД
-function loadManagedChannels() {
+// Загрузка каналов из БД (PostgreSQL)
+async function loadManagedChannels() {
   try {
-    const rows = db.prepare('SELECT name FROM managed_channels').all();
+    const rows = await db.all('SELECT name FROM managed_channels');
     return rows.map(r => r.name);
   } catch(e) { return [...twitchConfig.channels]; }
 }
-let managedChannels = loadManagedChannels();
+let managedChannels = [];
+loadManagedChannels().then(channels => { managedChannels = channels; });
 
-function addChannel(name) {
+async function addChannel(name) {
   if(!managedChannels.includes(name)) {
     managedChannels.push(name);
     twitchClient.join(name);
-    try { db.prepare('INSERT OR IGNORE INTO managed_channels (name) VALUES (?)').run(name); } catch(e) {}
+    try { await db.run('INSERT INTO managed_channels (name) VALUES ($1) ON CONFLICT DO NOTHING', [name]); } catch(e) {}
   }
 }
 
-function removeChannel(name) {
+async function removeChannel(name) {
   if(managedChannels.includes(name)) {
     managedChannels = managedChannels.filter(c => c !== name);
     twitchClient.part(name);
-    try { db.prepare('DELETE FROM managed_channels WHERE name = ?').run(name); } catch(e) {}
+    try { await db.run('DELETE FROM managed_channels WHERE name = $1', [name]); } catch(e) {}
   }
 }
 // Автоматизация расписания для VIP
@@ -218,22 +219,9 @@ twitchAuth.refreshAccessToken().then(token => {
   else console.log('Не удалось обновить Twitch access_token');
 });
 
-let db = null;
-try {
-  db = require('./db');
-  console.log('Using SQLite database (./db)');
-} catch (e) {
-  db = require('./filedb');
-  console.log('SQLite DB not available, using file-based fallback (./filedb)');
-}
+const db = require('./db');
 
-// Миграция: добавить поле refresh_token в users, если его нет
-try {
-  db.prepare('ALTER TABLE users ADD COLUMN refresh_token TEXT').run();
-  console.log('users: добавлен столбец refresh_token');
-} catch(e) {
-  if(!String(e).includes('duplicate column name')) console.error('Ошибка миграции users:', e.message);
-}
+// PostgreSQL: миграция refresh_token не требуется, поле уже есть
 // REST API: получить логи модерации
 app.get('/api/moderation/logs', checkToken, requireRole('moderator'), (req, res) => {
   res.json({logs: getModerationLogs()});
@@ -303,18 +291,24 @@ function checkToken(req, res, next){
 function requireAdmin(req, res, next){ if(req.user && req.user.role === 'admin') return next(); return res.status(403).json({error:'forbidden'}); }
 
 // Commands API
-app.get('/api/commands', checkToken, (req, res) => {
-  const rows = db.prepare('SELECT name,payload FROM commands').all();
-  const obj = {};
-  for(const r of rows) obj[r.name] = r.payload;
-  res.json(obj);
+
+app.get('/api/commands', checkToken, async (req, res) => {
+  try {
+    const rows = await db.all('SELECT name,payload FROM commands');
+    const obj = {};
+    for(const r of rows) obj[r.name] = r.payload;
+    res.json(obj);
+  } catch(e) { res.status(500).json({error:'db error'}); }
 });
 
-app.post('/api/commands', checkToken, requireAdmin, (req, res) => {
+
+app.post('/api/commands', checkToken, requireAdmin, async (req, res) => {
   const { name, payload } = req.body;
   if(!name || !payload) return res.status(400).json({error:'invalid'});
-  db.prepare('INSERT OR REPLACE INTO commands (name,payload) VALUES (?,?)').run(name, payload);
-  res.json({ok:true});
+  try {
+    await db.run('INSERT INTO commands (name,payload) VALUES ($1,$2) ON CONFLICT (name) DO UPDATE SET payload = $2', [name, payload]);
+    res.json({ok:true});
+  } catch(e) { res.status(500).json({error:'db error'}); }
 });
 
 // Ограничение доступа к определённым командам (пример)
@@ -323,52 +317,61 @@ app.post('/api/secure-command', checkToken, requireRole('moderator'), (req, res)
   res.json({ok:true, message:'Выполнена защищённая команда'});
 });
 
-app.delete('/api/commands/:name', checkToken, requireAdmin, (req, res) => {
+
+app.delete('/api/commands/:name', checkToken, requireAdmin, async (req, res) => {
   const name = req.params.name;
-  db.prepare('DELETE FROM commands WHERE name = ?').run(name);
-  res.json({ok:true});
+  try {
+    await db.run('DELETE FROM commands WHERE name = $1', [name]);
+    res.json({ok:true});
+  } catch(e) { res.status(500).json({error:'db error'}); }
 });
 
 // Auth: register + login
+
 app.post('/api/register', express.json(), async (req, res) =>{
   const {username, password, email} = req.body;
   if(!username||!password||!email) return res.status(400).json({error:'invalid'});
   const hashed = await bcrypt.hash(password, 8);
   try{
-    const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+    const countRow = await db.get('SELECT COUNT(*) as c FROM users');
+    const count = countRow ? countRow.c : 0;
     const role = count === 0 ? 'admin' : 'user';
     const refresh_token = Buffer.from(username + Date.now()).toString('base64');
     const now = new Date().toISOString();
-    const info = db.prepare('INSERT INTO users (username,password,role,email,refresh_token,last_login) VALUES (?,?,?,?,?,?)').run(username, hashed, role, email, refresh_token, now);
-    const token = jwt.sign({id: info.lastInsertRowid, username, role}, JWT_SECRET, {expiresIn:'8h'});
+    const info = await db.get('INSERT INTO users (username,password,role,email,refresh_token,last_login) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id', [username, hashed, role, email, refresh_token, now]);
+    const token = jwt.sign({id: info.id, username, role}, JWT_SECRET, {expiresIn:'8h'});
     return res.json({ok:true, token, refresh_token});
   }catch(e){ return res.status(400).json({error:'exists'}); }
 });
 
 // Settings API
-app.get('/api/settings', checkToken, (req, res) => {
-  const rows = db.prepare('SELECT key,value FROM settings').all();
-  const obj = {};
-  for(const r of rows){
-    try{ obj[r.key] = JSON.parse(r.value); }catch(e){ obj[r.key] = r.value; }
-  }
-  res.json(obj);
+
+app.get('/api/settings', checkToken, async (req, res) => {
+  try {
+    const rows = await db.all('SELECT key,value FROM settings');
+    const obj = {};
+    for(const r of rows){
+      try{ obj[r.key] = JSON.parse(r.value); }catch(e){ obj[r.key] = r.value; }
+    }
+    res.json(obj);
+  } catch(e) { res.status(500).json({error:'db error'}); }
 });
 
-app.put('/api/settings', checkToken, requireAdmin, express.json(), (req, res) => {
+
+app.put('/api/settings', checkToken, requireAdmin, express.json(), async (req, res) => {
   const body = req.body || {};
-  const insert = db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)');
-  try{
-    db.transaction(() => {
-      for(const k of Object.keys(body)) insert.run(k, JSON.stringify(body[k]));
-    })();
+  try {
+    for(const k of Object.keys(body)) {
+      await db.run('INSERT INTO settings (key,value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value = $2', [k, JSON.stringify(body[k])]);
+    }
     res.json({ok:true});
-  }catch(e){ res.status(500).json({error:'failed'}); }
+  } catch(e) { res.status(500).json({error:'failed'}); }
 });
+
 
 app.post('/api/login', express.json(), async (req,res)=>{
   const {username,password} = req.body; if(!username||!password) return res.status(400).json({error:'invalid'});
-  const row = db.prepare('SELECT id,username,password,role,refresh_token FROM users WHERE username = ?').get(username);
+  const row = await db.get('SELECT id,username,password,role,refresh_token,premium FROM users WHERE username = $1', [username]);
   if(!row) return res.status(401).json({error:'invalid'});
   const ok = await bcrypt.compare(password, row.password);
   if(!ok) return res.status(401).json({error:'invalid'});
@@ -377,23 +380,25 @@ app.post('/api/login', express.json(), async (req,res)=>{
   let refresh_token = row.refresh_token;
   if(!refresh_token) {
     refresh_token = Buffer.from(row.username + Date.now()).toString('base64');
-    db.prepare('UPDATE users SET refresh_token = ? WHERE id = ?').run(refresh_token, row.id);
+    await db.run('UPDATE users SET refresh_token = $1 WHERE id = $2', [refresh_token, row.id]);
   }
-  db.prepare('UPDATE users SET last_login = ? WHERE id = ?').run(new Date().toISOString(), row.id);
+  await db.run('UPDATE users SET last_login = $1 WHERE id = $2', [new Date().toISOString(), row.id]);
   res.json({token, refresh_token, premium: row.premium});
 });
 // API: активация премиум-функций
-app.post('/api/premium/activate', checkToken, (req, res) => {
+
+app.post('/api/premium/activate', checkToken, async (req, res) => {
   if(!req.user) return res.status(401).json({error:'unauthorized'});
-  db.prepare('UPDATE users SET premium = 1 WHERE id = ?').run(req.user.id);
-  db.prepare('INSERT INTO premium_features (user_id, feature, created_at) VALUES (?, ?, ?)').run(req.user.id, req.body.feature || 'default', new Date().toISOString());
+  await db.run('UPDATE users SET premium = 1 WHERE id = $1', [req.user.id]);
+  await db.run('INSERT INTO premium_features (user_id, feature, created_at) VALUES ($1, $2, $3)', [req.user.id, req.body.feature || 'default', new Date().toISOString()]);
   res.json({ok:true, premium: true});
 });
 
 // API: проверка премиум-статуса
-app.get('/api/premium/status', checkToken, (req, res) => {
+
+app.get('/api/premium/status', checkToken, async (req, res) => {
   if(!req.user) return res.status(401).json({error:'unauthorized'});
-  const row = db.prepare('SELECT premium FROM users WHERE id = ?').get(req.user.id);
+  const row = await db.get('SELECT premium FROM users WHERE id = $1', [req.user.id]);
   res.json({premium: !!(row && row.premium)});
 });
 
@@ -401,7 +406,8 @@ app.get('/api/premium/status', checkToken, (req, res) => {
 
 
 // Автоматическая сессия: возвращает данные пользователя, если токен валиден
-app.get('/api/session', (req, res) => {
+
+app.get('/api/session', async (req, res) => {
   const token = req.headers['authorization'] && req.headers['authorization'].startsWith('Bearer ')
     ? req.headers['authorization'].slice(7)
     : req.query.token || req.headers['x-auth-token'];
@@ -415,16 +421,17 @@ app.get('/api/session', (req, res) => {
 });
 
 // Endpoint для автообновления JWT токена через refresh_token
-app.post('/api/refresh', express.json(), (req, res) => {
+
+app.post('/api/refresh', express.json(), async (req, res) => {
   const { refresh_token } = req.body;
   if(!refresh_token) return res.status(400).json({error:'no refresh_token'});
   // Найти пользователя по refresh_token
-  const row = db.prepare('SELECT id,username,role FROM users WHERE refresh_token = ?').get(refresh_token);
+  const row = await db.get('SELECT id,username,role FROM users WHERE refresh_token = $1', [refresh_token]);
   if(!row) return res.status(401).json({error:'invalid refresh_token'});
   const newToken = jwt.sign({id: row.id, username: row.username, role: row.role}, JWT_SECRET, {expiresIn:'8h'});
   // Генерируем новый refresh_token
   const newRefreshToken = Buffer.from(row.username + Date.now()).toString('base64');
-  db.prepare('UPDATE users SET refresh_token = ? WHERE id = ?').run(newRefreshToken, row.id);
+  await db.run('UPDATE users SET refresh_token = $1 WHERE id = $2', [newRefreshToken, row.id]);
   return res.json({token: newToken, refresh_token: newRefreshToken});
 });
 

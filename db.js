@@ -1,70 +1,65 @@
-const path = require('path');
-const fs = require('fs');
-const Database = require('better-sqlite3');
 
-const DB_PATH = path.join(__dirname, 'data', 'app.db');
-const DATA_DIR = path.join(__dirname, 'data');
-if(!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+// PostgreSQL migration for Render
+const { Pool } = require('pg');
+const pool = new Pool({
+  host: process.env.PG_HOST,
+  port: process.env.PG_PORT || 5432,
+  user: process.env.PG_USER,
+  password: process.env.PG_PASSWORD,
+  database: process.env.PG_DATABASE,
+  ssl: process.env.PG_HOST ? { rejectUnauthorized: false } : false
+});
 
-const db = new Database(DB_PATH);
+// Helper for queries
+const db = {
+  query: (text, params) => pool.query(text, params),
+  get: async (text, params) => {
+    const res = await pool.query(text, params);
+    return res.rows[0] || null;
+  },
+  all: async (text, params) => {
+    const res = await pool.query(text, params);
+    return res.rows;
+  },
+  run: async (text, params) => {
+    await pool.query(text, params);
+  }
+};
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS commands (
-  name TEXT PRIMARY KEY,
-  payload TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT UNIQUE,
-  password TEXT,
-  role TEXT DEFAULT 'user'
-  , email TEXT
-  , refresh_token TEXT
-  , premium INTEGER DEFAULT 0
-  , last_login TEXT
-  , activity INTEGER DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS settings (
-  key TEXT PRIMARY KEY,
-  value TEXT
-);
- CREATE TABLE IF NOT EXISTS premium_features (
-   id INTEGER PRIMARY KEY AUTOINCREMENT,
-   user_id INTEGER,
-   feature TEXT,
-   enabled INTEGER DEFAULT 1,
-   created_at TEXT,
-   FOREIGN KEY(user_id) REFERENCES users(id)
- );
-CREATE TABLE IF NOT EXISTS managed_channels (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT UNIQUE NOT NULL
-);
-`);
-
-// Migrate existing JSON commands if present
-const CMD_FILE = path.join(DATA_DIR, 'commands.json');
-if(fs.existsSync(CMD_FILE)){
-  try{
-    const raw = fs.readFileSync(CMD_FILE,'utf8');
-    const obj = JSON.parse(raw);
-    const insert = db.prepare('INSERT OR REPLACE INTO commands (name,payload) VALUES (?,?)');
-    for(const k of Object.keys(obj)) insert.run(k, obj[k]);
-    // rename old file
-    fs.renameSync(CMD_FILE, CMD_FILE + '.migrated');
-  }catch(e){ console.warn('migration failed', e); }
+// Create tables if not exist
+async function migrate() {
+  await db.run(`CREATE TABLE IF NOT EXISTS commands (
+    name TEXT PRIMARY KEY,
+    payload TEXT NOT NULL
+  );`);
+  await db.run(`CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username TEXT UNIQUE,
+    password TEXT,
+    role TEXT DEFAULT 'user',
+    email TEXT,
+    refresh_token TEXT,
+    premium INTEGER DEFAULT 0,
+    last_login TEXT,
+    activity INTEGER DEFAULT 0
+  );`);
+  await db.run(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );`);
+  await db.run(`CREATE TABLE IF NOT EXISTS premium_features (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER,
+    feature TEXT,
+    enabled INTEGER DEFAULT 1,
+    created_at TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );`);
+  await db.run(`CREATE TABLE IF NOT EXISTS managed_channels (
+    id SERIAL PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL
+  );`);
 }
-
-// Migrate settings if an old settings.json exists
-const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
-if(fs.existsSync(SETTINGS_FILE)){
-  try{
-    const raw = fs.readFileSync(SETTINGS_FILE,'utf8');
-    const obj = JSON.parse(raw);
-    const insert = db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)');
-    for(const k of Object.keys(obj)) insert.run(k, JSON.stringify(obj[k]));
-    fs.renameSync(SETTINGS_FILE, SETTINGS_FILE + '.migrated');
-  }catch(e){ console.warn('settings migration failed', e); }
-}
+migrate().catch(e => console.error('Migration error:', e));
 
 module.exports = db;
