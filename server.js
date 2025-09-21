@@ -1,14 +1,25 @@
+
+// --- Render deployment optimization ---
 const path = require('path');
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const tmi = require('tmi.js');
+let express, http, WebSocket, tmi, axios;
+try {
+  express = require('express');
+  http = require('http');
+  WebSocket = require('ws');
+  tmi = require('tmi.js');
+  axios = require('axios');
+} catch (e) {
+  console.error('Missing dependency:', e.message);
+  process.exit(1);
+}
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || '';
-const axios = require('axios');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // Render uses 10000 by default
 app.use(express.json());
+
+// Serve static files for dashboard
+app.use('/', express.static(path.join(__dirname, 'twitch-bot-dashboard')));
 
 // Настройки Twitch-бота (заменить на свои значения)
 let twitchConfig = {
@@ -208,10 +219,10 @@ twitchAuth.refreshAccessToken().then(token => {
 });
 
 let db = null;
-try{
+try {
   db = require('./db');
   console.log('Using SQLite database (./db)');
-}catch(e){
+} catch (e) {
   db = require('./filedb');
   console.log('SQLite DB not available, using file-based fallback (./filedb)');
 }
@@ -835,7 +846,12 @@ app.get('/api/modlogs', (req, res) => {
 });
 
 
-server.listen(PORT, () => console.log(`Server running http://localhost:${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  if (process.env.RENDER) {
+    console.log('Running on Render.com');
+  }
+});
 // <-- Добавлена закрывающая фигурная скобка для Express/WebSocket блока
 }
 
