@@ -177,8 +177,111 @@ wss.on('connection', (ws) => {
     try { data = JSON.parse(m); } catch(e){ ws.send(JSON.stringify({type:'error', text:'invalid json'})); return; }
     if(data.type === 'auth'){ if(data.token === VALID_TOKEN){ ws.isAuthed = true; ws.send(JSON.stringify({type:'auth', ok:true})); } else ws.send(JSON.stringify({type:'auth', ok:false, reason:'invalid token'})); return; }
     if(!ws.isAuthed){ ws.send(JSON.stringify({type:'error', text:'not authenticated'})); return; }
-    if(data.type === 'say'){ console.log('[say]', data.text); ws.send(JSON.stringify({type:'ok', text:'message delivered'})); }
-    else if(data.type === 'custom'){ console.log('[custom]', data.cmd, data.text); ws.send(JSON.stringify({type:'ok', text:`custom ${data.cmd} executed`})); }
+    if(data.type === 'say'){
+      console.log('[say]', data.text);
+      if(data.text && typeof data.text === 'string') {
+        const txt = data.text.trim();
+        const lower = txt.toLowerCase();
+        let reply = null;
+        // !ping
+        if(lower === '!ping') reply = 'pong';
+        // !hello
+        else if(lower === '!hello') reply = 'Hi!';
+        // !help
+        else if(lower === '!help') reply = 'Доступные команды: !ping, !hello, !help, !time, !joke, !weather <город>, !user, !calc <выражение>, !translate <текст> <язык>';
+        // !time
+        else if(lower === '!time') reply = 'Текущее время: ' + new Date().toLocaleString();
+        // !user
+        else if(lower === '!user') reply = ws.user ? `Вы: ${ws.user.username}` : 'Нет данных пользователя';
+        // !joke [category]
+        else if(lower.startsWith('!joke')) {
+          try {
+            const axios = require('axios');
+            let url = 'https://official-joke-api.appspot.com/random_joke';
+            const parts = txt.split(' ');
+            if(parts.length > 1 && parts[1]) url = `https://official-joke-api.appspot.com/jokes/${parts[1]}/random`;
+            const jokeRes = await axios.get(url);
+            if(Array.isArray(jokeRes.data)) reply = jokeRes.data[0] ? `${jokeRes.data[0].setup} ${jokeRes.data[0].punchline}` : 'Не удалось получить шутку';
+            else reply = jokeRes.data ? `${jokeRes.data.setup} ${jokeRes.data.punchline}` : 'Не удалось получить шутку';
+          } catch(e) { reply = 'Ошибка получения шутки'; }
+        }
+        // !weather <город>
+        else if(lower.startsWith('!weather')) {
+          const city = txt.split(' ').slice(1).join(' ') || 'Москва';
+          try {
+            const axios = require('axios');
+            // Пример: Open-Meteo API (бесплатно, без ключа)
+            const weatherRes = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=55.75&longitude=37.62&current_weather=true`);
+            if(weatherRes.data && weatherRes.data.current_weather) {
+              reply = `Погода в ${city}: ${weatherRes.data.current_weather.temperature}°C, ветер ${weatherRes.data.current_weather.windspeed} м/с`;
+            } else reply = 'Не удалось получить погоду';
+          } catch(e) { reply = 'Ошибка получения погоды'; }
+        }
+        // !calc <выражение>
+        else if(lower.startsWith('!calc')) {
+          const expr = txt.slice(6).trim();
+          try {
+            // Безопасный eval
+            if(expr.match(/^[0-9+\-*/(). ]+$/)) reply = `Результат: ${eval(expr)}`;
+            else reply = 'Некорректное выражение';
+          } catch(e) { reply = 'Ошибка вычисления'; }
+        }
+        // !translate <текст> <язык>
+        else if(lower.startsWith('!translate')) {
+          const parts = txt.split(' ');
+          if(parts.length >= 3) {
+            const text = parts.slice(1, -1).join(' ');
+            const lang = parts[parts.length-1];
+            try {
+              const axios = require('axios');
+              // Пример: LibreTranslate (демо)
+              const resp = await axios.post('https://libretranslate.de/translate', {
+                q: text,
+                source: 'auto',
+                target: lang
+              }, {headers: {'accept': 'application/json'}});
+              reply = resp.data && resp.data.translatedText ? `Перевод: ${resp.data.translatedText}` : 'Не удалось перевести';
+            } catch(e) { reply = 'Ошибка перевода'; }
+          } else reply = 'Использование: !translate <текст> <язык>';
+        }
+        // !multi: !weather Москва; !joke; !time
+        else if(lower.startsWith('!multi:')) {
+          const cmds = txt.slice(7).split(';').map(c => c.trim()).filter(Boolean);
+          reply = 'Выполнение нескольких команд...';
+          for(const c of cmds) {
+            ws.send(JSON.stringify({type:'info', text:`Выполняю: ${c}` }));
+            // Можно рекурсивно вызвать обработчик, но для простоты — только echo
+          }
+        }
+        // Проверка кастомных команд из базы
+        if(!reply && db) {
+          try {
+            const cmdRow = db.prepare('SELECT payload FROM commands WHERE name = ?').get(lower);
+            if(cmdRow && cmdRow.payload) reply = `Кастомная команда: ${cmdRow.payload}`;
+          } catch(e) {}
+        }
+        if(reply) {
+          ws.send(JSON.stringify({type:'reply', text:reply}));
+          console.log('[bot reply]', reply);
+        } else {
+          ws.send(JSON.stringify({type:'ok', text:'message delivered'}));
+        }
+      } else ws.send(JSON.stringify({type:'ok', text:'message delivered'}));
+    }
+    else if(data.type === 'custom'){
+      console.log('[custom]', data.cmd, data.text);
+      // Автоответ на кастомные команды
+      let reply = `custom ${data.cmd} executed: ${data.text}`;
+      // Проверка кастомных команд из базы
+      if(db) {
+        try {
+          const cmdRow = db.prepare('SELECT payload FROM commands WHERE name = ?').get(data.cmd);
+          if(cmdRow && cmdRow.payload) reply = `Кастомная команда: ${cmdRow.payload}`;
+        } catch(e) {}
+      }
+      ws.send(JSON.stringify({type:'reply', text:reply}));
+      console.log('[bot reply]', reply);
+    }
     else ws.send(JSON.stringify({type:'error', text:'unknown command'}));
   });
 });
