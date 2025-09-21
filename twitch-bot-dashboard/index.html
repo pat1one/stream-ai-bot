@@ -42,6 +42,31 @@
     </section>
 
     <section class="card">
+      <h2>Статистика и графики</h2>
+      <div id="statsBlock">
+        <div>Сообщений: <span id="statMessages">—</span></div>
+        <div>Команд: <span id="statCommands">—</span></div>
+        <div>Активных пользователей: <span id="statUsers">—</span></div>
+        <canvas id="activityChart" width="400" height="120" style="margin-top:12px"></canvas>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Модерация</h2>
+      <div class="row">
+        <input id="modUser" type="text" placeholder="Пользователь" />
+        <select id="modAction">
+          <option value="ban">Ban</option>
+          <option value="timeout">Timeout</option>
+          <option value="delete">Delete Message</option>
+        </select>
+        <input id="modReason" type="text" placeholder="Причина (опц.)" />
+        <button id="modBtn">Выполнить</button>
+      </div>
+      <div id="modLogs" class="logs" style="margin-top:8px"></div>
+    </section>
+
+    <section class="card">
       <h2>Управление сообщениями</h2>
       <div class="row">
         <input id="messageInput" type="text" placeholder="Сообщение в чат..." />

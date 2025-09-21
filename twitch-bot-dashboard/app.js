@@ -1,4 +1,72 @@
 (() => {
+  // --- Статистика и графики ---
+  const statEls = {
+    messages: document.getElementById('statMessages'),
+    commands: document.getElementById('statCommands'),
+    users: document.getElementById('statUsers'),
+    chart: document.getElementById('activityChart')
+  };
+  let chartInstance = null;
+  async function loadStats() {
+    try {
+      const res = await fetch('/api/stats');
+      if(res.ok) {
+        const stats = await res.json();
+        statEls.messages.textContent = stats.messages || 0;
+        statEls.commands.textContent = stats.commands || 0;
+        statEls.users.textContent = stats.activeUsers || 0;
+        if(window.Chart && stats.activity) {
+          if(chartInstance) chartInstance.destroy();
+          chartInstance = new Chart(statEls.chart.getContext('2d'), {
+            type: 'line',
+            data: { labels: stats.activity.labels, datasets: [{ label: 'Активность', data: stats.activity.data, borderColor: '#36a2eb', fill: false }] },
+            options: { responsive: false, plugins: { legend: { display: false } } }
+          });
+        }
+      }
+    } catch(e) { statEls.messages.textContent = statEls.commands.textContent = statEls.users.textContent = '—'; }
+    // Загрузка логов модерации
+    try {
+      const res = await fetch('/api/modlogs');
+      if(res.ok) {
+        const logs = await res.json();
+        const modLogsDiv = document.getElementById('modLogs');
+        if(modLogsDiv) {
+          modLogsDiv.innerHTML = '';
+          logs.forEach(l => {
+            const div = document.createElement('div');
+            div.textContent = `[${l.time}] ${l.action} ${l.target} (${l.reason||''})`;
+            modLogsDiv.appendChild(div);
+          });
+        }
+      }
+    } catch(e){}
+  }
+  window.loadStats = loadStats;
+  setInterval(loadStats, 60000);
+  window.addEventListener('load', () => { loadStats(); });
+
+  // --- Модерация ---
+  const modEls = {
+    user: document.getElementById('modUser'),
+    action: document.getElementById('modAction'),
+    reason: document.getElementById('modReason'),
+    btn: document.getElementById('modBtn'),
+    logs: document.getElementById('modLogs')
+  };
+  modEls.btn.addEventListener('click', async () => {
+    const username = modEls.user.value.trim();
+    const action = modEls.action.value;
+    const reason = modEls.reason.value.trim();
+    if(!username || !action) return;
+    if(ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'moderation', action, target: username, reason }));
+      const log = `[${new Date().toLocaleTimeString()}] ${action} ${username} (${reason})`;
+      const div = document.createElement('div'); div.textContent = log; modEls.logs.appendChild(div); modEls.logs.scrollTop = modEls.logs.scrollHeight;
+    } else {
+      const div = document.createElement('div'); div.textContent = 'WS не открыт'; modEls.logs.appendChild(div);
+    }
+  });
   const els = {
     wsUrl: document.getElementById('wsUrl'),
     authToken: document.getElementById('authToken'),

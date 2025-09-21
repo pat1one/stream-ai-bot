@@ -418,6 +418,39 @@ app.post('/api/refresh', express.json(), (req, res) => {
 });
 
 // serve dashboard statics
+// --- API статистики для фронтенда ---
+let stats = {
+  messages: 0,
+  commands: 0,
+  activeUsers: 0,
+  activity: { labels: [], data: [] }
+};
+let userActivity = {};
+function updateStats(type, username) {
+  if(type === 'message') stats.messages++;
+  if(type === 'command') stats.commands++;
+  if(username) {
+    userActivity[username] = (userActivity[username] || 0) + 1;
+    stats.activeUsers = Object.keys(userActivity).length;
+  }
+  // График активности (по минутам)
+  const now = new Date();
+  const label = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0');
+  if(stats.activity.labels[stats.activity.labels.length-1] !== label) {
+    stats.activity.labels.push(label);
+    stats.activity.data.push(1);
+    if(stats.activity.labels.length > 30) { stats.activity.labels.shift(); stats.activity.data.shift(); }
+  } else {
+    stats.activity.data[stats.activity.data.length-1]++;
+  }
+}
+
+app.get('/api/stats', (req, res) => {
+  res.json(stats);
+});
+  updateStats('message', userstate.username);
+  // Для статистики команд
+  updateStats('command', username);
 app.use('/', express.static(path.join(__dirname, 'twitch-bot-dashboard')));
 
 // Пример использования актуального Twitch access_token:
@@ -430,6 +463,23 @@ const wss = new WebSocket.Server({ server });
 const VALID_TOKEN = process.env.EXAMPLE_TOKEN || 'secret-token';
 
 wss.on('connection', (ws) => {
+  // Для модерации: логировать действия
+  ws.on('message', async (m) => {
+    // ...existing code...
+    if(data.type === 'moderation') {
+      // Логировать модерацию для фронта
+      if(data.action && data.target) {
+        updateStats('command', data.target);
+        if(!stats.modLogs) stats.modLogs = [];
+        stats.modLogs.push({ time: new Date().toLocaleTimeString(), action: data.action, target: data.target, reason: data.reason });
+        if(stats.modLogs.length > 50) stats.modLogs.shift();
+      }
+    }
+    // ...existing code...
+  });
+app.get('/api/modlogs', (req, res) => {
+  res.json(stats.modLogs || []);
+});
   ws.isAuthed = false;
   ws.send(JSON.stringify({type:'info', text:'Connected to integrated server.'}));
   ws.on('message', async (m) => {
