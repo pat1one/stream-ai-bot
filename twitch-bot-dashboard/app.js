@@ -215,7 +215,7 @@
   }
 
   function connect(){
-  const url = els.wsUrl.value || 'ws://localhost:3000';
+  const url = els.wsUrl.value || 'ws://localhost:10000';
     addLog('Попытка подключения к ' + url);
     ws = new WebSocket(url);
     ws.addEventListener('open', () => { addLog('WS открыт'); setStatus(true);
@@ -336,7 +336,7 @@
 
   // load saved UI state
   window.addEventListener('load', () => {
-    els.wsUrl.value = localStorage.getItem('wsUrl') || 'ws://localhost:3000';
+  els.wsUrl.value = localStorage.getItem('wsUrl') || 'ws://localhost:10000';
     els.autoReconnect.checked = localStorage.getItem('autoReconnect') === '1';
     els.persistLogs.checked = localStorage.getItem('persistLogs') === '1';
     els.authToken.value = localStorage.getItem('jwt') || localStorage.getItem('authToken') || '';
