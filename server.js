@@ -1,141 +1,3 @@
-require('dotenv').config({ path: '.env.secret' });
-// --- AI-генератор челленджей ---
-async function generateChallenge(theme = 'стрим', lang = 'ru') {
-  const apiKey = process.env.OPENAI_KEY;
-  if (!apiKey) throw new Error('No OpenAI API key');
-  const prompt = lang === 'ru'
-    ? `Придумай уникальный челлендж для стримера или зрителей по теме: ${theme}. Кратко, весело, не повторяйся.`
-    : `Come up with a unique challenge for a streamer or viewers on the topic: ${theme}. Be brief, fun, and original.`;
-  const axios = require('axios');
-  const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-    model: 'gpt-3.5-turbo',
-    messages: [{ role: 'user', content: prompt }],
-    max_tokens: 60,
-    temperature: 0.9
-  }, {
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    }
-  });
-  return response.data.choices[0].message.content.trim();
-}
-
-// Команда !challenge <тема> (только премиум)
-// ...existing code...
-      // AI-генератор челленджей: !challenge <тема>
-      if(ws.user && ws.user.premium && lower.startsWith('!challenge')) {
-        (async () => {
-          const theme = txt.split(' ').slice(1).join(' ') || 'стрим';
-          try {
-            const challenge = await generateChallenge(theme, 'ru');
-            ws.send(JSON.stringify({type:'reply', text:`[Челлендж]: ${challenge}`}));
-          } catch(e) {
-            ws.send(JSON.stringify({type:'error', text:'Ошибка генерации челленджа: ' + e.message}));
-          }
-        })();
-        return;
-      }
-// API: сгенерировать челлендж (только премиум)
-app.post('/api/challenge', checkToken, async (req, res) => {
-  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
-  const { theme, lang } = req.body;
-  try {
-    const challenge = await generateChallenge(theme || 'стрим', lang || 'ru');
-    res.json({challenge});
-  } catch (e) {
-    res.status(500).json({error:'challenge error', details: e.message});
-  }
-});
-// API: получить хайлайты (только премиум)
-app.get('/api/highlights', checkToken, async (req, res) => {
-  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
-  res.json(highlights);
-});
-// API: сбросить хайлайты (только премиум)
-app.post('/api/highlights/reset', checkToken, async (req, res) => {
-  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
-  highlights = [];
-  res.json({ok:true});
-});
-// --- Автоматический клипмейкер (AI хайлайты) ---
-let highlights = [];
-const HIGHLIGHT_WINDOW = 30; // секунд
-const HIGHLIGHT_THRESHOLD = 10; // сообщений за окно
-let recentMessages = [];
-
-function addHighlight(reason) {
-  const now = new Date();
-  highlights.push({ time: now.toISOString(), reason });
-  if (highlights.length > 100) highlights.shift();
-  console.log('[HIGHLIGHT]', now.toLocaleTimeString(), reason);
-}
-
-function checkHighlightActivity(message, userstate) {
-  const now = Date.now();
-  recentMessages.push({ time: now, user: userstate.username, text: message });
-  // Удаляем старые сообщения
-  recentMessages = recentMessages.filter(m => now - m.time < HIGHLIGHT_WINDOW * 1000);
-  // Всплеск сообщений
-  if (recentMessages.length >= HIGHLIGHT_THRESHOLD) {
-    addHighlight('Всплеск активности в чате');
-    recentMessages = [];
-  }
-  // Смех (по ключевым словам)
-  if (/\b(ахах|lol|lmao|xd|😂|🤣)\b/i.test(message)) {
-    addHighlight('Смех в чате');
-  }
-}
-
-async function onDonationHighlight(data) {
-  addHighlight(`Донат: ${data.username} — ${data.amount}₽`);
-}
-// --- Интеграция с DonationAlerts (донаты) ---
-// Для работы нужен DONATIONALERTS_TOKEN и DONATIONALERTS_SECRET в .env
-let donationStats = { total: 0, count: 0, last: null, top: [] };
-
-// Webhook для DonationAlerts (укажите этот URL в личном кабинете DonationAlerts)
-app.post('/api/donationalerts/webhook', express.json(), async (req, res) => {
-  // Проверка секрета (опционально)
-  const secret = process.env.DONATIONALERTS_SECRET;
-  if (secret && req.headers['x-donationalerts-signature'] !== secret) {
-    return res.status(403).json({error:'invalid secret'});
-  }
-  const data = req.body;
-  if (!data || !data.username || !data.amount) return res.status(400).json({error:'bad payload'});
-  // Реакция: отправить сообщение в чат, уведомление, озвучка
-  donationStats.total += Number(data.amount);
-  donationStats.count++;
-  donationStats.last = data;
-  // Топ донатеров (по сумме)
-  let found = donationStats.top.find(u => u.username === data.username);
-  if (found) found.amount += Number(data.amount);
-  else donationStats.top.push({ username: data.username, amount: Number(data.amount) });
-  donationStats.top.sort((a,b) => b.amount - a.amount);
-  if (donationStats.top.length > 10) donationStats.top = donationStats.top.slice(0,10);
-  // Уведомление премиум-пользователям
-  await notifyDonation({ username: data.username, amount: data.amount, message: data.message || '' });
-  // Озвучка доната (если включено)
-  if (process.env.ENABLE_DONATE_TTS === '1' && data.message) {
-    try {
-      const audio = await generateSpeech(data.message, 'ru');
-      const fileName = `donate_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`;
-      const filePath = path.join(__dirname, 'logs', fileName);
-      fs.writeFileSync(filePath, audio);
-      // Можно отправить ссылку на аудио в чат или на фронт
-    } catch(e) { console.warn('TTS donate error:', e.message); }
-  }
-  // Хайлайт по донату
-  await onDonationHighlight(data);
-  res.json({ok:true});
-});
-
-// API: статистика донатов (только для премиум)
-app.get('/api/donations/stats', checkToken, async (req, res) => {
-  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
-  res.json(donationStats);
-});
-// --- Премиум-уведомления (push/webhook) ---
 // Универсальная функция отправки webhook (Discord, Telegram, кастомный URL)
 async function sendPremiumNotification({text, type = 'info', user = null}) {
   // Discord Webhook
@@ -181,18 +43,6 @@ async function notifyRaid({from, viewers}) {
   });
 }
 
-// API для ручной отправки уведомления (только премиум)
-app.post('/api/premium/notify', checkToken, async (req, res) => {
-  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
-  const { text, type } = req.body;
-  if (!text) return res.status(400).json({ error: 'no text' });
-  try {
-    await sendPremiumNotification({text, type: type || 'info', user: req.user.username});
-    res.json({ok:true});
-  } catch (e) {
-    res.status(500).json({error:'notify error', details: e.message});
-  }
-});
 // --- Голосовые уведомления через ElevenLabs ---
 const fs = require('fs');
 const FormData = require('form-data');
@@ -221,45 +71,9 @@ async function generateSpeech(text, lang = 'ru') {
   return response.data; // Buffer с mp3
 }
 
-// API: POST /api/tts { text, lang } => mp3 (только для премиум)
-app.post('/api/tts', checkToken, async (req, res) => {
-  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
-  const { text, lang } = req.body;
-  if (!text || typeof text !== 'string') return res.status(400).json({ error: 'no text' });
-  try {
-    const audio = await generateSpeech(text, lang || 'ru');
-    res.set('Content-Type', 'audio/mpeg');
-    res.send(audio);
-  } catch (e) {
-    res.status(500).json({ error: 'tts error', details: e.message });
-  }
-});
 
-// Команда в чате/WS: !tts <язык> <текст> (пример: !tts ru Привет мир)
-// Только для премиум
-// ...existing code...
-      // Голосовые уведомления: !tts ru|en <текст>
-      if(ws.user && ws.user.premium && lower.startsWith('!tts ')) {
-        (async () => {
-          const parts = txt.split(' ');
-          const lang = (parts[1] === 'en' || parts[1] === 'ru') ? parts[1] : 'ru';
-          const ttsText = parts.slice(2).join(' ');
-          if(!ttsText) {
-            ws.send(JSON.stringify({type:'reply', text:'Использование: !tts ru|en <текст>'}));
-            return;
-          }
-          try {
-            const audio = await generateSpeech(ttsText, lang);
-            const fileName = `tts_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`;
-            const filePath = path.join(__dirname, 'logs', fileName);
-            fs.writeFileSync(filePath, audio);
-            ws.send(JSON.stringify({type:'tts', url:`/logs/${fileName}`}));
-          } catch(e) {
-            ws.send(JSON.stringify({type:'error', text:'Ошибка генерации озвучки: ' + e.message}));
-          }
-        })();
-        return;
-      }
+
+
 
 // --- Render deployment optimization ---
 const path = require('path');
@@ -841,74 +655,76 @@ app.get('/api/modlogs', (req, res) => {
         }
         // Автоматизация расписания для VIP
         if(ws.user && ws.user.premium) {
-          if(message.startsWith('!channels')) {
-            // Только премиум/админ
-            const userRow = db.prepare('SELECT premium,role FROM users WHERE username = ?').get(username);
-            if(userRow && (userRow.premium || userRow.role === 'admin')) {
-              const channelsFromDb = loadManagedChannels();
-              twitchClient.say(channel, `Управляемые каналы: ${channelsFromDb.join(', ')}`);
-            } else {
-              twitchClient.say(channel, `@${username}, команда доступна только премиум/админ.`);
-            }
-            return;
-          }
-          if(message.startsWith('!addchannel ')) {
-            // Только админ
-            const userRow = db.prepare('SELECT role FROM users WHERE username = ?').get(username);
-            if(userRow && userRow.role === 'admin') {
-              const newChannel = message.split(' ')[1];
-              if(newChannel && !managedChannels.includes(newChannel)) {
-                addChannel(newChannel);
-                twitchClient.say(channel, `Канал ${newChannel} добавлен.`);
+          (async () => {
+            if(message.startsWith('!channels')) {
+              // Только премиум/админ
+              const userRow = db.prepare('SELECT premium,role FROM users WHERE username = ?').get(username);
+              if(userRow && (userRow.premium || userRow.role === 'admin')) {
+                const channelsFromDb = await loadManagedChannels();
+                twitchClient.say(channel, `Управляемые каналы: ${channelsFromDb.join(', ')}`);
               } else {
-                twitchClient.say(channel, `Канал уже добавлен или не указан.`);
+                twitchClient.say(channel, `@${username}, команда доступна только премиум/админ.`);
               }
-            } else {
-              twitchClient.say(channel, `@${username}, команда доступна только админам.`);
+              return;
             }
-            return;
-          }
-          if(message.startsWith('!removechannel ')) {
-            // Только админ
-            const userRow = db.prepare('SELECT role FROM users WHERE username = ?').get(username);
-            if(userRow && userRow.role === 'admin') {
-              const remChannel = message.split(' ')[1];
-              if(remChannel && managedChannels.includes(remChannel)) {
-                removeChannel(remChannel);
-                twitchClient.say(channel, `Канал ${remChannel} удалён.`);
+            if(message.startsWith('!addchannel ')) {
+              // Только админ
+              const userRow = db.prepare('SELECT role FROM users WHERE username = ?').get(username);
+              if(userRow && userRow.role === 'admin') {
+                const newChannel = message.split(' ')[1];
+                if(newChannel && !managedChannels.includes(newChannel)) {
+                  await addChannel(newChannel);
+                  twitchClient.say(channel, `Канал ${newChannel} добавлен.`);
+                } else {
+                  twitchClient.say(channel, `Канал уже добавлен или не указан.`);
+                }
               } else {
-                twitchClient.say(channel, `Канал не найден или не указан.`);
+                twitchClient.say(channel, `@${username}, команда доступна только админам.`);
               }
-            } else {
-              twitchClient.say(channel, `@${username}, команда доступна только админам.`);
+              return;
             }
-            return;
-          }
-          if(lower === '!giveaway') {
-            startGiveaway();
-            ws.send(JSON.stringify({type:'info', text:'Розыгрыш запущен! Введите !enter для участия.'}));
-            logModeration(ws.user.username, 'giveaway_start', '', '');
-            return;
-          }
-          if(lower === '!enter') {
-            if(enterGiveaway(ws.user.username)) {
-              ws.send(JSON.stringify({type:'info', text:'Вы участвуете в розыгрыше!'}));
-              logModeration(ws.user.username, 'giveaway_enter', '', '');
-            } else {
-              ws.send(JSON.stringify({type:'info', text:'Нет активного розыгрыша.'}));
+            if(message.startsWith('!removechannel ')) {
+              // Только админ
+              const userRow = db.prepare('SELECT role FROM users WHERE username = ?').get(username);
+              if(userRow && userRow.role === 'admin') {
+                const remChannel = message.split(' ')[1];
+                if(remChannel && managedChannels.includes(remChannel)) {
+                  await removeChannel(remChannel);
+                  twitchClient.say(channel, `Канал ${remChannel} удалён.`);
+                } else {
+                  twitchClient.say(channel, `Канал не найден или не указан.`);
+                }
+              } else {
+                twitchClient.say(channel, `@${username}, команда доступна только админам.`);
+              }
+              return;
             }
-            return;
-          }
-          if(lower === '!draw') {
-            const winner = drawGiveaway();
-            if(winner) {
-              ws.send(JSON.stringify({type:'info', text:`Победитель розыгрыша: ${winner}` }));
-              logModeration(ws.user.username, 'giveaway_draw', winner, '');
-            } else {
-              ws.send(JSON.stringify({type:'info', text:'Нет участников или розыгрыш не запущен.'}));
+            if(lower === '!giveaway') {
+              startGiveaway();
+              ws.send(JSON.stringify({type:'info', text:'Розыгрыш запущен! Введите !enter для участия.'}));
+              logModeration(ws.user.username, 'giveaway_start', '', '');
+              return;
             }
-            return;
-          }
+            if(lower === '!enter') {
+              if(enterGiveaway(ws.user.username)) {
+                ws.send(JSON.stringify({type:'info', text:'Вы участвуете в розыгрыше!'}));
+                logModeration(ws.user.username, 'giveaway_enter', '', '');
+              } else {
+                ws.send(JSON.stringify({type:'info', text:'Нет активного розыгрыша.'}));
+              }
+              return;
+            }
+            if(lower === '!draw') {
+              const winner = drawGiveaway();
+              if(winner) {
+                ws.send(JSON.stringify({type:'info', text:`Победитель розыгрыша: ${winner}` }));
+                logModeration(ws.user.username, 'giveaway_draw', winner, '');
+              } else {
+                ws.send(JSON.stringify({type:'info', text:'Нет участников или розыгрыш не запущен.'}));
+              }
+              return;
+            }
+          })();
         }
         // Кастомные фильтры: добавить regexp
         if(ws.user && (ws.user.role === 'admin' || ws.user.role === 'moderator') && lower.startsWith('!addfilter ')) {
@@ -920,42 +736,29 @@ app.get('/api/modlogs', (req, res) => {
         }
         // Персональные VIP-команды для премиум-пользователей
         if(ws.user && ws.user.premium) {
-          // !vipweather <город>
-          if(lower.startsWith('!vipweather')) {
-            const city = txt.split(' ').slice(1).join(' ') || 'Москва';
-            try {
-              const axios = require('axios');
-              const weatherRes = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=55.75&longitude=37.62&current_weather=true`);
-              if(weatherRes.data && weatherRes.data.current_weather) {
-                ws.send(JSON.stringify({type:'reply', text:`[VIP] Погода в ${city}: ${weatherRes.data.current_weather.temperature}°C, ветер ${weatherRes.data.current_weather.windspeed} м/с`}));
-              } else ws.send(JSON.stringify({type:'reply', text:'[VIP] Не удалось получить погоду'}));
-            } catch(e) { ws.send(JSON.stringify({type:'reply', text:'[VIP] Ошибка получения погоды'})); }
-            logModeration(ws.user.username, 'vipweather', '', city);
-            return;
-          }
-          // !vipjoke
-          if(lower === '!vipjoke') {
-            try {
-              const axios = require('axios');
-              const jokeRes = await axios.get('https://official-joke-api.appspot.com/random_joke');
-              if(jokeRes.data) {
-                ws.send(JSON.stringify({type:'reply', text:`[VIP] ${jokeRes.data.setup} ${jokeRes.data.punchline}`}));
-              } else ws.send(JSON.stringify({type:'reply', text:'[VIP] Не удалось получить шутку'}));
-            } catch(e) { ws.send(JSON.stringify({type:'reply', text:'[VIP] Ошибка получения шутки'})); }
-            logModeration(ws.user.username, 'vipjoke', '', '');
-            return;
-          }
-        }
-        // Премиум AI-автоответы
-        if(ws.user && ws.user.premium) {
-          if(lower.startsWith('!ai ')) {
-            const prompt = txt.slice(4).trim();
-            // Пример: интеграция с внешним AI (здесь — заглушка)
-            let aiReply = '[AI] Ответ: ' + prompt.split('').reverse().join(''); // demo: reverse text
-            ws.send(JSON.stringify({type:'reply', text: aiReply }));
-            logModeration(ws.user.username, 'ai_reply', '', prompt);
-            return;
-          }
+          (async () => {
+            // !vipweather <город>
+            if(lower.startsWith('!vipweather')) {
+              const city = txt.split(' ').slice(1).join(' ') || 'Москва';
+              try {
+                const axios = require('axios');
+                const weatherRes = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=55.75&longitude=37.62&current_weather=true`);
+                if(weatherRes.data && weatherRes.data.current_weather) {
+                  ws.send(JSON.stringify({type:'reply', text:`[VIP] Погода в ${city}: ${weatherRes.data.current_weather.temperature}°C, ветер ${weatherRes.data.current_weather.windspeed} м/с`}));
+                } else ws.send(JSON.stringify({type:'reply', text:'Не удалось получить погоду'}));
+              } catch(e) { ws.send(JSON.stringify({type:'reply', text:'Ошибка получения погоды'})); }
+              return;
+            }
+            // !ai <prompt>
+            if(lower.startsWith('!ai ')) {
+              const prompt = txt.slice(4).trim();
+              // Здесь должен быть вызов AI (например, OpenAI API)
+              let aiReply = '[AI] Ответ: ' + prompt.split('').reverse().join(''); // demo: reverse text
+              ws.send(JSON.stringify({type:'reply', text: aiReply }));
+              logModeration(ws.user.username, 'ai_reply', '', prompt);
+              return;
+            }
+          })();
         }
         // Модераторские команды через чат (!ban, !timeout, !purge, !filter, !warn, !logs)
         if(ws.user && (ws.user.role === 'admin' || ws.user.role === 'moderator')) {
@@ -1026,27 +829,31 @@ app.get('/api/modlogs', (req, res) => {
         else if(lower === '!user') reply = ws.user ? `Вы: ${ws.user.username}` : 'Нет данных пользователя';
         // !joke [category]
         else if(lower.startsWith('!joke')) {
-          try {
-            const axios = require('axios');
-            let url = 'https://official-joke-api.appspot.com/random_joke';
-            const parts = txt.split(' ');
-            if(parts.length > 1 && parts[1]) url = `https://official-joke-api.appspot.com/jokes/${parts[1]}/random`;
-            const jokeRes = await axios.get(url);
-            if(Array.isArray(jokeRes.data)) reply = jokeRes.data[0] ? `${jokeRes.data[0].setup} ${jokeRes.data[0].punchline}` : 'Не удалось получить шутку';
-            else reply = jokeRes.data ? `${jokeRes.data.setup} ${jokeRes.data.punchline}` : 'Не удалось получить шутку';
-          } catch(e) { reply = 'Ошибка получения шутки'; }
+          await (async () => {
+            try {
+              const axios = require('axios');
+              let url = 'https://official-joke-api.appspot.com/random_joke';
+              const parts = txt.split(' ');
+              if(parts.length > 1 && parts[1]) url = `https://official-joke-api.appspot.com/jokes/${parts[1]}/random`;
+              const jokeRes = await axios.get(url);
+              if(Array.isArray(jokeRes.data)) reply = jokeRes.data[0] ? `${jokeRes.data[0].setup} ${jokeRes.data[0].punchline}` : 'Не удалось получить шутку';
+              else reply = jokeRes.data ? `${jokeRes.data.setup} ${jokeRes.data.punchline}` : 'Не удалось получить шутку';
+            } catch(e) { reply = 'Ошибка получения шутки'; }
+          })();
         }
         // !weather <город>
         else if(lower.startsWith('!weather')) {
-          const city = txt.split(' ').slice(1).join(' ') || 'Москва';
-          try {
-            const axios = require('axios');
-            // Пример: Open-Meteo API (бесплатно, без ключа)
-            const weatherRes = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=55.75&longitude=37.62&current_weather=true`);
-            if(weatherRes.data && weatherRes.data.current_weather) {
-              reply = `Погода в ${city}: ${weatherRes.data.current_weather.temperature}°C, ветер ${weatherRes.data.current_weather.windspeed} м/с`;
-            } else reply = 'Не удалось получить погоду';
-          } catch(e) { reply = 'Ошибка получения погоды'; }
+          await (async () => {
+            const city = txt.split(' ').slice(1).join(' ') || 'Москва';
+            try {
+              const axios = require('axios');
+              // Пример: Open-Meteo API (бесплатно, без ключа)
+              const weatherRes = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=55.75&longitude=37.62&current_weather=true`);
+              if(weatherRes.data && weatherRes.data.current_weather) {
+                reply = `Погода в ${city}: ${weatherRes.data.current_weather.temperature}°C, ветер ${weatherRes.data.current_weather.windspeed} м/с`;
+              } else reply = 'Не удалось получить погоду';
+            } catch(e) { reply = 'Ошибка получения погоды'; }
+          })();
         }
         // !calc <выражение>
         else if(lower.startsWith('!calc')) {
@@ -1059,21 +866,23 @@ app.get('/api/modlogs', (req, res) => {
         }
         // !translate <текст> <язык>
         else if(lower.startsWith('!translate')) {
-          const parts = txt.split(' ');
-          if(parts.length >= 3) {
-            const text = parts.slice(1, -1).join(' ');
-            const lang = parts[parts.length-1];
-            try {
-              const axios = require('axios');
-              // Пример: LibreTranslate (демо)
-              const resp = await axios.post('https://libretranslate.de/translate', {
-                q: text,
-                source: 'auto',
-                target: lang
-              }, {headers: {'accept': 'application/json'}});
-              reply = resp.data && resp.data.translatedText ? `Перевод: ${resp.data.translatedText}` : 'Не удалось перевести';
-            } catch(e) { reply = 'Ошибка перевода'; }
-          } else reply = 'Использование: !translate <текст> <язык>';
+          await (async () => {
+            const parts = txt.split(' ');
+            if(parts.length >= 3) {
+              const text = parts.slice(1, -1).join(' ');
+              const lang = parts[parts.length-1];
+              try {
+                const axios = require('axios');
+                // Пример: LibreTranslate (демо)
+                const resp = await axios.post('https://libretranslate.de/translate', {
+                  q: text,
+                  source: 'auto',
+                  target: lang
+                }, {headers: {'accept': 'application/json'}});
+                reply = resp.data && resp.data.translatedText ? `Перевод: ${resp.data.translatedText}` : 'Не удалось перевести';
+              } catch(e) { reply = 'Ошибка перевода'; }
+            } else reply = 'Использование: !translate <текст> <язык>';
+          })();
         }
         // !multi: !weather Москва; !joke; !time
         else if(lower.startsWith('!multi:')) {
