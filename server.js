@@ -1,3 +1,261 @@
+// --- AI-генератор челленджей ---
+async function generateChallenge(theme = 'стрим', lang = 'ru') {
+  const apiKey = process.env.OPENAI_KEY;
+  if (!apiKey) throw new Error('No OpenAI API key');
+  const prompt = lang === 'ru'
+    ? `Придумай уникальный челлендж для стримера или зрителей по теме: ${theme}. Кратко, весело, не повторяйся.`
+    : `Come up with a unique challenge for a streamer or viewers on the topic: ${theme}. Be brief, fun, and original.`;
+  const axios = require('axios');
+  const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+    model: 'gpt-3.5-turbo',
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: 60,
+    temperature: 0.9
+  }, {
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    }
+  });
+  return response.data.choices[0].message.content.trim();
+}
+
+// Команда !challenge <тема> (только премиум)
+// ...existing code...
+      // AI-генератор челленджей: !challenge <тема>
+      if(ws.user && ws.user.premium && lower.startsWith('!challenge')) {
+        const theme = txt.split(' ').slice(1).join(' ') || 'стрим';
+        try {
+          const challenge = await generateChallenge(theme, 'ru');
+          ws.send(JSON.stringify({type:'reply', text:`[Челлендж]: ${challenge}`}));
+        } catch(e) {
+          ws.send(JSON.stringify({type:'error', text:'Ошибка генерации челленджа: ' + e.message}));
+        }
+        return;
+      }
+// API: сгенерировать челлендж (только премиум)
+app.post('/api/challenge', checkToken, async (req, res) => {
+  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
+  const { theme, lang } = req.body;
+  try {
+    const challenge = await generateChallenge(theme || 'стрим', lang || 'ru');
+    res.json({challenge});
+  } catch (e) {
+    res.status(500).json({error:'challenge error', details: e.message});
+  }
+});
+// API: получить хайлайты (только премиум)
+app.get('/api/highlights', checkToken, (req, res) => {
+  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
+  res.json(highlights);
+});
+// API: сбросить хайлайты (только премиум)
+app.post('/api/highlights/reset', checkToken, (req, res) => {
+  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
+  highlights = [];
+  res.json({ok:true});
+});
+// --- Автоматический клипмейкер (AI хайлайты) ---
+let highlights = [];
+const HIGHLIGHT_WINDOW = 30; // секунд
+const HIGHLIGHT_THRESHOLD = 10; // сообщений за окно
+let recentMessages = [];
+
+function addHighlight(reason) {
+  const now = new Date();
+  highlights.push({ time: now.toISOString(), reason });
+  if (highlights.length > 100) highlights.shift();
+  console.log('[HIGHLIGHT]', now.toLocaleTimeString(), reason);
+}
+
+function checkHighlightActivity(message, userstate) {
+  const now = Date.now();
+  recentMessages.push({ time: now, user: userstate.username, text: message });
+  // Удаляем старые сообщения
+  recentMessages = recentMessages.filter(m => now - m.time < HIGHLIGHT_WINDOW * 1000);
+  // Всплеск сообщений
+  if (recentMessages.length >= HIGHLIGHT_THRESHOLD) {
+    addHighlight('Всплеск активности в чате');
+    recentMessages = [];
+  }
+  // Смех (по ключевым словам)
+  if (/\b(ахах|lol|lmao|xd|😂|🤣)\b/i.test(message)) {
+    addHighlight('Смех в чате');
+  }
+}
+
+async function onDonationHighlight(data) {
+  addHighlight(`Донат: ${data.username} — ${data.amount}₽`);
+}
+// --- Интеграция с DonationAlerts (донаты) ---
+// Для работы нужен DONATIONALERTS_TOKEN и DONATIONALERTS_SECRET в .env
+let donationStats = { total: 0, count: 0, last: null, top: [] };
+
+// Webhook для DonationAlerts (укажите этот URL в личном кабинете DonationAlerts)
+app.post('/api/donationalerts/webhook', express.json(), async (req, res) => {
+  // Проверка секрета (опционально)
+  const secret = process.env.DONATIONALERTS_SECRET;
+  if (secret && req.headers['x-donationalerts-signature'] !== secret) {
+    return res.status(403).json({error:'invalid secret'});
+  }
+  const data = req.body;
+  if (!data || !data.username || !data.amount) return res.status(400).json({error:'bad payload'});
+  // Реакция: отправить сообщение в чат, уведомление, озвучка
+  donationStats.total += Number(data.amount);
+  donationStats.count++;
+  donationStats.last = data;
+  // Топ донатеров (по сумме)
+  let found = donationStats.top.find(u => u.username === data.username);
+  if (found) found.amount += Number(data.amount);
+  else donationStats.top.push({ username: data.username, amount: Number(data.amount) });
+  donationStats.top.sort((a,b) => b.amount - a.amount);
+  if (donationStats.top.length > 10) donationStats.top = donationStats.top.slice(0,10);
+  // Уведомление премиум-пользователям
+  await notifyDonation({ username: data.username, amount: data.amount, message: data.message || '' });
+  // Озвучка доната (если включено)
+  if (process.env.ENABLE_DONATE_TTS === '1' && data.message) {
+    try {
+      const audio = await generateSpeech(data.message, 'ru');
+      const fileName = `donate_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`;
+      const filePath = path.join(__dirname, 'logs', fileName);
+      fs.writeFileSync(filePath, audio);
+      // Можно отправить ссылку на аудио в чат или на фронт
+    } catch(e) { console.warn('TTS donate error:', e.message); }
+  }
+  // Хайлайт по донату
+  await onDonationHighlight(data);
+  res.json({ok:true});
+});
+
+// API: статистика донатов (только для премиум)
+app.get('/api/donations/stats', checkToken, (req, res) => {
+  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
+  res.json(donationStats);
+});
+// --- Премиум-уведомления (push/webhook) ---
+// Универсальная функция отправки webhook (Discord, Telegram, кастомный URL)
+async function sendPremiumNotification({text, type = 'info', user = null}) {
+  // Discord Webhook
+  if (process.env.DISCORD_WEBHOOK_URL) {
+    try {
+      await axios.post(process.env.DISCORD_WEBHOOK_URL, { content: `[${type}] ${text}` });
+    } catch (e) { console.warn('Discord webhook error:', e.message); }
+  }
+  // Telegram Bot API (если задан TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID)
+  if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
+    try {
+      const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+      await axios.post(url, { chat_id: process.env.TELEGRAM_CHAT_ID, text: `[${type}] ${text}` });
+    } catch (e) { console.warn('Telegram notify error:', e.message); }
+  }
+  // Можно добавить другие webhook/URL по желанию
+}
+
+// Пример: отправка уведомления о донате (вызывать из донат-интеграции)
+async function notifyDonation({username, amount, message}) {
+  await sendPremiumNotification({
+    text: `Донат от ${username}: ${amount}₽\n${message}`,
+    type: 'donation',
+    user: username
+  });
+}
+
+// Пример: уведомление о VIP (вызывать при выдаче VIP)
+async function notifyVIP({username}) {
+  await sendPremiumNotification({
+    text: `Пользователь ${username} получил VIP!`,
+    type: 'vip',
+    user: username
+  });
+}
+
+// Пример: уведомление о рейде (вызывать при рейде)
+async function notifyRaid({from, viewers}) {
+  await sendPremiumNotification({
+    text: `Рейд от ${from} на ${viewers} зрителей!`,
+    type: 'raid',
+    user: from
+  });
+}
+
+// API для ручной отправки уведомления (только премиум)
+app.post('/api/premium/notify', checkToken, async (req, res) => {
+  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
+  const { text, type } = req.body;
+  if (!text) return res.status(400).json({ error: 'no text' });
+  try {
+    await sendPremiumNotification({text, type: type || 'info', user: req.user.username});
+    res.json({ok:true});
+  } catch (e) {
+    res.status(500).json({error:'notify error', details: e.message});
+  }
+});
+// --- Голосовые уведомления через ElevenLabs ---
+const fs = require('fs');
+const FormData = require('form-data');
+
+// Получить аудиофайл через ElevenLabs API
+async function generateSpeech(text, lang = 'ru') {
+  const apiKey = process.env.ELEVENLABS_KEY;
+  if (!apiKey) throw new Error('No ElevenLabs API key');
+  // Выбор голоса по языку (можно расширить)
+  const voiceId = lang === 'ru' ? 'EXAVITQu4vr4xnSDxMaL' : '21m00Tcm4TlvDq8ikWAM';
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+  const payload = {
+    text,
+    model_id: 'eleven_multilingual_v2',
+    voice_settings: { stability: 0.5, similarity_boost: 0.7 }
+  };
+  const axios = require('axios');
+  const response = await axios.post(url, payload, {
+    headers: {
+      'xi-api-key': apiKey,
+      'Content-Type': 'application/json',
+      'Accept': 'audio/mpeg'
+    },
+    responseType: 'arraybuffer'
+  });
+  return response.data; // Buffer с mp3
+}
+
+// API: POST /api/tts { text, lang } => mp3 (только для премиум)
+app.post('/api/tts', checkToken, async (req, res) => {
+  if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
+  const { text, lang } = req.body;
+  if (!text || typeof text !== 'string') return res.status(400).json({ error: 'no text' });
+  try {
+    const audio = await generateSpeech(text, lang || 'ru');
+    res.set('Content-Type', 'audio/mpeg');
+    res.send(audio);
+  } catch (e) {
+    res.status(500).json({ error: 'tts error', details: e.message });
+  }
+});
+
+// Команда в чате/WS: !tts <язык> <текст> (пример: !tts ru Привет мир)
+// Только для премиум
+// ...existing code...
+      // Голосовые уведомления: !tts ru|en <текст>
+      if(ws.user && ws.user.premium && lower.startsWith('!tts ')) {
+        const parts = txt.split(' ');
+        const lang = (parts[1] === 'en' || parts[1] === 'ru') ? parts[1] : 'ru';
+        const ttsText = parts.slice(2).join(' ');
+        if(!ttsText) {
+          ws.send(JSON.stringify({type:'reply', text:'Использование: !tts ru|en <текст>'}));
+          return;
+        }
+        try {
+          const audio = await generateSpeech(ttsText, lang);
+          // Сохраняем временный файл и отправляем ссылку (или base64)
+          const fileName = `tts_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`;
+          const filePath = path.join(__dirname, 'logs', fileName);
+          fs.writeFileSync(filePath, audio);
+          ws.send(JSON.stringify({type:'tts', url:`/logs/${fileName}`}));
+        } catch(e) {
+          ws.send(JSON.stringify({type:'error', text:'Ошибка генерации озвучки: ' + e.message}));
+        }
+        return;
+      }
 
 // --- Render deployment optimization ---
 const path = require('path');
@@ -166,6 +424,8 @@ twitchClient.on('connected', (addr, port) => {
 // Автофильтрация сообщений в чате Twitch
 twitchClient.on('message', (channel, userstate, message, self) => {
   if(self) return;
+  // Хайлайты: анализ активности
+  checkHighlightActivity(message, userstate);
   if(checkFilters(message)) {
     // Удалить сообщение
     twitchClient.deletemessage(channel, userstate.id);
