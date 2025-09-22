@@ -11,6 +11,7 @@ npm-debug.log*
 .env.local
 .env.production
 .env.example
+.env.secret
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

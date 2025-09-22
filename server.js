@@ -1,3 +1,4 @@
+require('dotenv').config({ path: '.env.secret' });
 // --- AI-генератор челленджей ---
 async function generateChallenge(theme = 'стрим', lang = 'ru') {
   const apiKey = process.env.OPENAI_KEY;
@@ -24,13 +25,15 @@ async function generateChallenge(theme = 'стрим', lang = 'ru') {
 // ...existing code...
       // AI-генератор челленджей: !challenge <тема>
       if(ws.user && ws.user.premium && lower.startsWith('!challenge')) {
-        const theme = txt.split(' ').slice(1).join(' ') || 'стрим';
-        try {
-          const challenge = await generateChallenge(theme, 'ru');
-          ws.send(JSON.stringify({type:'reply', text:`[Челлендж]: ${challenge}`}));
-        } catch(e) {
-          ws.send(JSON.stringify({type:'error', text:'Ошибка генерации челленджа: ' + e.message}));
-        }
+        (async () => {
+          const theme = txt.split(' ').slice(1).join(' ') || 'стрим';
+          try {
+            const challenge = await generateChallenge(theme, 'ru');
+            ws.send(JSON.stringify({type:'reply', text:`[Челлендж]: ${challenge}`}));
+          } catch(e) {
+            ws.send(JSON.stringify({type:'error', text:'Ошибка генерации челленджа: ' + e.message}));
+          }
+        })();
         return;
       }
 // API: сгенерировать челлендж (только премиум)
@@ -45,12 +48,12 @@ app.post('/api/challenge', checkToken, async (req, res) => {
   }
 });
 // API: получить хайлайты (только премиум)
-app.get('/api/highlights', checkToken, (req, res) => {
+app.get('/api/highlights', checkToken, async (req, res) => {
   if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
   res.json(highlights);
 });
 // API: сбросить хайлайты (только премиум)
-app.post('/api/highlights/reset', checkToken, (req, res) => {
+app.post('/api/highlights/reset', checkToken, async (req, res) => {
   if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
   highlights = [];
   res.json({ok:true});
@@ -128,7 +131,7 @@ app.post('/api/donationalerts/webhook', express.json(), async (req, res) => {
 });
 
 // API: статистика донатов (только для премиум)
-app.get('/api/donations/stats', checkToken, (req, res) => {
+app.get('/api/donations/stats', checkToken, async (req, res) => {
   if (!req.user || !req.user.premium) return res.status(403).json({ error: 'premium only' });
   res.json(donationStats);
 });
@@ -237,23 +240,24 @@ app.post('/api/tts', checkToken, async (req, res) => {
 // ...existing code...
       // Голосовые уведомления: !tts ru|en <текст>
       if(ws.user && ws.user.premium && lower.startsWith('!tts ')) {
-        const parts = txt.split(' ');
-        const lang = (parts[1] === 'en' || parts[1] === 'ru') ? parts[1] : 'ru';
-        const ttsText = parts.slice(2).join(' ');
-        if(!ttsText) {
-          ws.send(JSON.stringify({type:'reply', text:'Использование: !tts ru|en <текст>'}));
-          return;
-        }
-        try {
-          const audio = await generateSpeech(ttsText, lang);
-          // Сохраняем временный файл и отправляем ссылку (или base64)
-          const fileName = `tts_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`;
-          const filePath = path.join(__dirname, 'logs', fileName);
-          fs.writeFileSync(filePath, audio);
-          ws.send(JSON.stringify({type:'tts', url:`/logs/${fileName}`}));
-        } catch(e) {
-          ws.send(JSON.stringify({type:'error', text:'Ошибка генерации озвучки: ' + e.message}));
-        }
+        (async () => {
+          const parts = txt.split(' ');
+          const lang = (parts[1] === 'en' || parts[1] === 'ru') ? parts[1] : 'ru';
+          const ttsText = parts.slice(2).join(' ');
+          if(!ttsText) {
+            ws.send(JSON.stringify({type:'reply', text:'Использование: !tts ru|en <текст>'}));
+            return;
+          }
+          try {
+            const audio = await generateSpeech(ttsText, lang);
+            const fileName = `tts_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`;
+            const filePath = path.join(__dirname, 'logs', fileName);
+            fs.writeFileSync(filePath, audio);
+            ws.send(JSON.stringify({type:'tts', url:`/logs/${fileName}`}));
+          } catch(e) {
+            ws.send(JSON.stringify({type:'error', text:'Ошибка генерации озвучки: ' + e.message}));
+          }
+        })();
         return;
       }
 
@@ -483,7 +487,7 @@ const db = require('./db');
 
 // PostgreSQL: миграция refresh_token не требуется, поле уже есть
 // REST API: получить логи модерации
-app.get('/api/moderation/logs', checkToken, requireRole('moderator'), (req, res) => {
+app.get('/api/moderation/logs', checkToken, requireRole('moderator'), async (req, res) => {
   res.json({logs: getModerationLogs()});
 });
 // Twitch OAuth2 endpoints
@@ -572,7 +576,7 @@ app.post('/api/commands', checkToken, requireAdmin, async (req, res) => {
 });
 
 // Ограничение доступа к определённым командам (пример)
-app.post('/api/secure-command', checkToken, requireRole('moderator'), (req, res) => {
+app.post('/api/secure-command', checkToken, requireRole('moderator'), async (req, res) => {
   // Только moderator и admin
   res.json({ok:true, message:'Выполнена защищённая команда'});
 });
@@ -740,6 +744,7 @@ const wss = new WebSocket.Server({ server });
 
 const VALID_TOKEN = process.env.EXAMPLE_TOKEN || 'secret-token';
 
+// Объявляем обработчик как async
 wss.on('connection', (ws) => {
   // Для модерации: логировать действия
   ws.on('message', async (m) => {
