@@ -91,7 +91,7 @@ try {
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || '';
 
 const app = express();
-const PORT = process.env.PORT || 10000; // Render uses 10000 by default
+const PORT = process.env.PORT || 5000; // Replit/ngrok совместимость
 app.use(express.json());
 
 // Serve static files for dashboard
