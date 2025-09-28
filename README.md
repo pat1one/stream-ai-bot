@@ -1,1 +1,1 @@
-Twitch/Youtube AI бот
+Twitch/Youtube AI stream bot
